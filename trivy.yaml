@@ -1,0 +1,19 @@
+scan:
+   scanners:
+      - vuln
+      - secret
+      - misconfig
+   # Entries are globs; a bare directory name matches only at the scan root.
+   skip-dirs:
+      - "**/node_modules"
+      - "**/dist"
+      - "**/out"
+      - "**/build"
+      - "**/cdk.out"
+      - "**/coverage"
+      - "**/.scratch"
+      - "**/scratch"
+      - "**/.git"
+      - "**/target"
+      - "**/gen"
+      - "**/.tools"

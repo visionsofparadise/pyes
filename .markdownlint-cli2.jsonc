@@ -1,0 +1,25 @@
+{
+	"gitignore": true,
+	"ignores": ["**/.*/**"],
+	"noProgress": true,
+	"noBanner": true,
+	"config": {
+		"default": true,
+		"MD013": false,
+		"MD033": false,
+		"MD041": false,
+		"MD004": { "style": "dash" },
+		// Matches Prettier's nested list indent under tabWidth 3.
+		"MD007": { "indent": 3 },
+		// Prettier pads multi-digit ordered-list markers, which the fixed space counts fight.
+		"MD030": false,
+		// Prettier writes _em_; asterisk loops the two fixers.
+		"MD049": { "style": "underscore" },
+		"MD050": { "style": "asterisk" },
+		// spaces_per_tab tracks Prettier's tabWidth.
+		"MD010": { "spaces_per_tab": 3, "code_blocks": false },
+		"MD024": false,
+		"MD025": false,
+		"MD060": { "style": "consistent" },
+	},
+}
