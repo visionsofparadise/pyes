@@ -5,6 +5,10 @@ fn bytes_of(text: &str) -> usize {
     text.len()
 }
 
+fn weighted_bytes_of(text: &str) -> usize {
+    text.len() + if text.contains("lines.L0`") { 50 } else { 0 }
+}
+
 fn records_of(count: usize, text: &str) -> Vec<String> {
     vec![text.to_string(); count]
 }
@@ -44,6 +48,56 @@ fn the_state_limit_admits_the_record_that_lands_on_it() {
     assert_eq!(
         chunks_of(&records, "?", &bytes_of),
         Ok(vec![0..11, 11..22, 22..25])
+    );
+}
+
+#[test]
+fn the_request_limit_fits_a_record_that_lands_one_token_inside_it() {
+    let question = "?".repeat(3_990);
+    let mut records = records_of(11, &"a".repeat(380));
+
+    records.push("a".repeat(592));
+
+    assert_eq!(
+        chunks_of(&records, &question, &bytes_of),
+        Ok(Vec::from_iter(std::iter::once(0..12)))
+    );
+
+    records[11].push('a');
+
+    assert_eq!(
+        chunks_of(&records, &question, &bytes_of),
+        Ok(vec![0..11, 11..12])
+    );
+}
+
+#[test]
+fn the_state_limit_fits_a_record_that_lands_one_token_inside_it() {
+    let mut records = records_of(12, &"a".repeat(2_000));
+
+    records.push("a".repeat(2_256));
+
+    assert_eq!(
+        chunks_of(&records, "?", &weighted_bytes_of),
+        Ok(Vec::from_iter(std::iter::once(0..13)))
+    );
+
+    records[12].push('a');
+
+    assert_eq!(
+        chunks_of(&records, "?", &weighted_bytes_of),
+        Ok(vec![0..12, 12..13])
+    );
+}
+
+#[test]
+fn the_request_limit_binds_first_for_many_short_records() {
+    let question = "x".repeat(39);
+    let records = records_of(1_500, "ab");
+
+    assert_eq!(
+        chunks_of(&records, &question, &bytes_of),
+        Ok(vec![0..643, 643..1_286, 1_286..1_500])
     );
 }
 
