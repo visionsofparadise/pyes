@@ -15,5 +15,5 @@ debug = false
 
 [dependencies]
 httpdate = "1"
-serde_json = "1"
+serde_json = { version = "1", features = ["preserve_order"] }
 tiktoken-rs = "0.12"

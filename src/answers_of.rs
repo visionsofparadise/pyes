@@ -36,11 +36,11 @@ pub fn answers_of(body: &str, count: usize) -> Result<(Vec<f64>, usize), String>
 }
 
 fn duration_of(seconds: f64) -> Option<Duration> {
-    if !seconds.is_finite() || seconds < 0.0 {
+    if !seconds.is_finite() || seconds < 0.0 || seconds > RETRY_AFTER_LIMIT.as_secs_f64() {
         return None;
     }
 
-    Some(Duration::from_secs_f64(seconds)).filter(|duration| *duration <= RETRY_AFTER_LIMIT)
+    Some(Duration::from_secs_f64(seconds))
 }
 
 fn retry_after_of(
@@ -48,22 +48,24 @@ fn retry_after_of(
     retry_after: Option<&str>,
     now: SystemTime,
 ) -> Option<Duration> {
-    let from_milliseconds = retry_after_ms
+    let milliseconds = retry_after_ms
         .and_then(|text| text.trim().parse::<f64>().ok())
-        .and_then(|milliseconds| duration_of(milliseconds / 1000.0));
+        .filter(|milliseconds| milliseconds.is_finite() && *milliseconds >= 0.0);
 
-    from_milliseconds.or_else(|| {
-        let text = retry_after?.trim();
+    if let Some(milliseconds) = milliseconds {
+        return duration_of(milliseconds / 1000.0);
+    }
 
-        match text.parse::<f64>() {
-            Ok(seconds) => duration_of(seconds),
-            Err(_) => {
-                let date = httpdate::parse_http_date(text).ok()?;
+    let text = retry_after?.trim();
 
-                duration_of(date.duration_since(now).unwrap_or_default().as_secs_f64())
-            }
+    match text.parse::<f64>() {
+        Ok(seconds) => duration_of(seconds),
+        Err(_) => {
+            let date = httpdate::parse_http_date(text).ok()?;
+
+            duration_of(date.duration_since(now).unwrap_or_default().as_secs_f64())
         }
-    })
+    }
 }
 
 fn message_of(parsed: &Value, body: &str) -> String {
@@ -78,14 +80,18 @@ fn message_of(parsed: &Value, body: &str) -> String {
     }
 
     if let Some(items) = detail.as_array() {
-        let messages: Vec<&str> = items
-            .iter()
-            .filter_map(|item| item["msg"].as_str())
-            .collect();
+        let joined = |key: &str| {
+            items
+                .iter()
+                .filter_map(|item| item[key].as_str())
+                .collect::<Vec<&str>>()
+                .join("; ")
+        };
 
-        if !messages.is_empty() {
-            return messages.join("; ");
-        }
+        return [joined("msg"), joined("type")]
+            .into_iter()
+            .find(|text| !text.is_empty())
+            .unwrap_or_else(|| "unprocessable request".to_string());
     }
 
     if let Some(error_type) = detail["error_type"].as_str() {

@@ -81,6 +81,20 @@ fn a_422_list_joins_msgs_and_omits_input() {
 }
 
 #[test]
+fn a_422_list_without_msgs_joins_types_and_omits_input() {
+    let body = r#"{"detail":[{"type":"missing","input":{"state":"SECRET"}},{"type":"extra_forbidden","input":"SECRET"}]}"#;
+
+    assert_eq!(
+        fail(422, body),
+        Failure::Fatal("HTTP 422: missing; extra_forbidden".to_string())
+    );
+    assert_eq!(
+        fail(422, r#"{"detail":[{"input":"SECRET"}]}"#),
+        Failure::Fatal("HTTP 422: unprocessable request".to_string())
+    );
+}
+
+#[test]
 fn a_non_json_body_is_the_message() {
     assert_eq!(
         fail(404, "not found\n"),
@@ -151,6 +165,42 @@ fn retry_after_over_sixty_seconds_is_dropped() {
         failure_of(429, "{}", Some("60000"), None, NOW),
         Failure::RateLimited {
             retry_after: Some(Duration::from_secs(60))
+        }
+    );
+}
+
+#[test]
+fn huge_values_are_dropped_without_panicking() {
+    assert_eq!(
+        failure_of(429, "{}", None, Some("1e20"), NOW),
+        Failure::RateLimited { retry_after: None }
+    );
+    assert_eq!(
+        failure_of(429, "{}", Some("1e23"), None, NOW),
+        Failure::RateLimited { retry_after: None }
+    );
+}
+
+#[test]
+fn an_over_limit_retry_after_ms_does_not_fall_through_to_seconds() {
+    assert_eq!(
+        failure_of(429, "{}", Some("70000"), Some("5"), NOW),
+        Failure::RateLimited { retry_after: None }
+    );
+}
+
+#[test]
+fn an_unparseable_or_negative_retry_after_ms_defers_to_seconds() {
+    assert_eq!(
+        failure_of(429, "{}", Some("soon"), Some("5"), NOW),
+        Failure::RateLimited {
+            retry_after: Some(Duration::from_secs(5))
+        }
+    );
+    assert_eq!(
+        failure_of(429, "{}", Some("-1"), Some("5"), NOW),
+        Failure::RateLimited {
+            retry_after: Some(Duration::from_secs(5))
         }
     );
 }
