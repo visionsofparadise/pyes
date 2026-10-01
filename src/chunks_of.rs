@@ -47,7 +47,7 @@ pub fn chunks_of(
     tokens_of: &dyn Fn(&str) -> usize,
 ) -> Result<Vec<Range<usize>>, String> {
     let base = tokens_of("{\"lines\":{}}");
-    let costs_at = |record: &str, index: usize| {
+    let costs_of = |record: &str, index: usize| {
         let entry = format!("\"L{index}\":{},", serde_json::Value::from(record));
 
         (
@@ -59,14 +59,14 @@ pub fn chunks_of(
     let mut chunk = Chunk::new(0, base);
 
     for (number, record) in records.iter().enumerate() {
-        let (mut entry, mut instruction) = costs_at(record, chunk.count);
+        let (mut entry, mut instruction) = costs_of(record, chunk.count);
 
         if !chunk.admits(entry, instruction) {
             if chunk.count > 0 {
                 chunks.push(chunk.start..number);
 
                 chunk = Chunk::new(number, base);
-                (entry, instruction) = costs_at(record, 0);
+                (entry, instruction) = costs_of(record, 0);
             }
 
             if !chunk.admits(entry, instruction) {
