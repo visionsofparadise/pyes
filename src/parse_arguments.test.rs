@@ -52,3 +52,14 @@ fn unescapes_the_separator() {
 fn auth_is_a_subcommand() {
     assert_eq!(command_of(&["auth"]), Ok(Command::Auth));
 }
+
+#[test]
+fn help_is_a_question() {
+    assert_eq!(
+        command_of(&["help"]),
+        Ok(Command::Score {
+            questions: vec!["help".to_string()],
+            separator: Separator::Newline,
+        })
+    );
+}

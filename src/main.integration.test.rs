@@ -51,7 +51,12 @@ struct Outcome {
     code: i32,
 }
 
-fn outcome_of(arguments: &[&str], input: &[u8], environment: Environment) -> Outcome {
+fn outcome_into<W: Write + std::marker::Send + 'static>(
+    arguments: &[&str],
+    input: &[u8],
+    environment: Environment,
+    mut stdout: W,
+) -> (W, String, i32) {
     let arguments: Vec<OsString> = std::iter::once("pyes")
         .chain(arguments.iter().copied())
         .map(OsString::from)
@@ -61,7 +66,6 @@ fn outcome_of(arguments: &[&str], input: &[u8], environment: Environment) -> Out
 
     std::thread::spawn(move || {
         let mut stdin = input.as_slice();
-        let mut stdout = Vec::new();
         let mut stderr = Vec::new();
         let code = run(
             arguments,
@@ -73,16 +77,22 @@ fn outcome_of(arguments: &[&str], input: &[u8], environment: Environment) -> Out
             },
         );
 
-        let _ = sender.send(Outcome {
-            stdout,
-            stderr: String::from_utf8(stderr).unwrap(),
-            code,
-        });
+        let _ = sender.send((stdout, String::from_utf8(stderr).unwrap(), code));
     });
 
     receiver
         .recv_timeout(Duration::from_secs(60))
         .expect("run did not return within 60 s")
+}
+
+fn outcome_of(arguments: &[&str], input: &[u8], environment: Environment) -> Outcome {
+    let (stdout, stderr, code) = outcome_into(arguments, input, environment, Vec::new());
+
+    Outcome {
+        stdout,
+        stderr,
+        code,
+    }
 }
 
 fn question_of(instructions: &str) -> &str {
@@ -357,5 +367,77 @@ fn auth_strips_a_byte_order_mark() {
     assert_eq!(
         std::fs::read_to_string(folder.path.join("pyes").join("key")).unwrap(),
         "stored"
+    );
+}
+
+struct ClosedPipe {
+    error_of: fn() -> std::io::Error,
+}
+
+impl Write for ClosedPipe {
+    fn write(&mut self, _: &[u8]) -> std::io::Result<usize> {
+        Err((self.error_of)())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+#[test]
+fn a_closed_stdout_ends_the_run_quietly() {
+    let folder = Folder::new();
+    let mock = MockJev::start(half);
+    let mut errors: Vec<fn() -> std::io::Error> =
+        vec![|| std::io::Error::from(std::io::ErrorKind::BrokenPipe)];
+
+    if cfg!(windows) {
+        errors.push(|| std::io::Error::from_raw_os_error(232));
+    }
+
+    for error_of in errors {
+        let (_, stderr, code) = outcome_into(
+            &["Is this a?"],
+            b"a\n",
+            folder.environment_of(Some("test"), &mock),
+            ClosedPipe { error_of },
+        );
+
+        assert_eq!((stderr, code), (String::new(), SUCCESS));
+    }
+}
+
+fn pathless_of(api_key: Option<&str>, mock: &MockJev) -> Environment {
+    Environment {
+        api_key: api_key.map(str::to_string),
+        base_url: Some(mock.url.clone()),
+        appdata: None,
+        xdg_config_home: None,
+        home: None,
+    }
+}
+
+#[test]
+fn no_key_folder_and_no_key_reports_the_missing_key() {
+    let mock = MockJev::start(half);
+    let outcome = outcome_of(&["Is this a?"], b"a\n", pathless_of(None, &mock));
+
+    assert_eq!(
+        (outcome.stderr.as_str(), outcome.code),
+        (
+            "pyes: no API key: set TYPESAFE_API_KEY or run `pyes auth`\n",
+            FAILURE
+        )
+    );
+}
+
+#[test]
+fn a_set_key_needs_no_key_folder() {
+    let mock = MockJev::start(half);
+    let outcome = outcome_of(&["Is this a?"], b"a\n", pathless_of(Some("test"), &mock));
+
+    assert_eq!(
+        (text_of(&outcome.stdout), outcome.code),
+        ("0.5\ta\n".to_string(), SUCCESS)
     );
 }

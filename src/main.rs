@@ -54,6 +54,11 @@ fn present(value: Option<&str>) -> Option<&str> {
     value.filter(|value| !value.trim().is_empty())
 }
 
+fn closed(error: &std::io::Error) -> bool {
+    error.kind() == std::io::ErrorKind::BrokenPipe
+        || (cfg!(windows) && error.raw_os_error() == Some(232))
+}
+
 fn key_path_from(environment: &Environment) -> Result<std::path::PathBuf, String> {
     key_path_of(
         cfg!(windows),
@@ -104,18 +109,23 @@ fn score(
         .collect();
     let stored = match present(environment.api_key.as_deref()) {
         Some(_) => None,
-        None => read_stored_key(&key_path_from(environment)?)?,
+        None => match key_path_from(environment) {
+            Ok(path) => read_stored_key(&path)?,
+            Err(_) => None,
+        },
     };
     let key = key_of(environment.api_key.as_deref(), stored.as_deref())?;
     let base_url = present(environment.base_url.as_deref()).unwrap_or(BASE_URL);
     let client = Client::new(base_url.to_string(), key);
     let columns = score_records(&client, &texts, &questions)?;
-    let written = |error: std::io::Error| format!("stdout: {error}");
     let mut stdout = BufWriter::new(&mut *streams.stdout);
 
-    write_output(&records, &columns, terminator_of(&separator), &mut stdout).map_err(written)?;
-
-    stdout.flush().map_err(written)
+    match write_output(&records, &columns, terminator_of(&separator), &mut stdout)
+        .and_then(|()| stdout.flush())
+    {
+        Err(error) if !closed(&error) => Err(format!("stdout: {error}")),
+        _ => Ok(()),
+    }
 }
 
 fn run(arguments: Vec<OsString>, environment: &Environment, streams: &mut Streams) -> i32 {
@@ -167,6 +177,8 @@ fn main() {
     let mut stdout = std::io::stdout().lock();
     let mut stderr = std::io::stderr();
 
+    std::panic::set_hook(Box::new(|_| {}));
+
     let code = catch_unwind(AssertUnwindSafe(|| {
         run(
             std::env::args_os().collect(),
@@ -178,7 +190,17 @@ fn main() {
             },
         )
     }))
-    .unwrap_or(FAILURE);
+    .unwrap_or_else(|payload| {
+        let message = payload
+            .downcast_ref::<&str>()
+            .copied()
+            .or_else(|| payload.downcast_ref::<String>().map(String::as_str))
+            .unwrap_or("a panic ended the run");
+
+        let _ = writeln!(stderr, "pyes: internal error: {message}");
+
+        FAILURE
+    });
 
     let _ = stdout.flush();
 

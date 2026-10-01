@@ -74,3 +74,11 @@ fn a_key_outside_visible_ascii_is_refused() {
     assert_eq!(header_key_of("a\u{7f}"), refused);
     assert_eq!(header_key_of("!~"), Ok("!~".to_string()));
 }
+
+#[test]
+fn elsewhere_a_relative_xdg_config_home_is_ignored() {
+    assert_eq!(
+        key_path_of(false, None, Some("relative/xdg"), Some("/home")),
+        Ok(Path::new("/home").join(".config").join("pyes").join("key"))
+    );
+}

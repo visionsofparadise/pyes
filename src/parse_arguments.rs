@@ -6,7 +6,8 @@ use crate::split_records::Separator;
     bin_name = "pyes",
     version,
     about = env!("CARGO_PKG_DESCRIPTION"),
-    args_conflicts_with_subcommands = true
+    args_conflicts_with_subcommands = true,
+    disable_help_subcommand = true
 )]
 pub struct Arguments {
     #[arg(

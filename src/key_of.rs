@@ -14,7 +14,9 @@ pub fn key_path_of(
 ) -> Result<PathBuf, String> {
     let folder = if windows {
         PathBuf::from(present(appdata).ok_or("APPDATA is not set")?)
-    } else if let Some(xdg_config_home) = present(xdg_config_home) {
+    } else if let Some(xdg_config_home) =
+        present(xdg_config_home).filter(|path| path.starts_with('/'))
+    {
         PathBuf::from(xdg_config_home)
     } else {
         PathBuf::from(present(home).ok_or("neither XDG_CONFIG_HOME nor HOME is set")?)
@@ -71,7 +73,13 @@ pub fn store_key(path: &Path, key: &str) -> Result<(), String> {
 
     let mut file = options.open(path).map_err(failed)?;
 
-    file.write_all(key.as_bytes()).map_err(failed)
+    file.write_all(key.as_bytes()).map_err(failed)?;
+
+    #[cfg(unix)]
+    fs::set_permissions(path, std::os::unix::fs::PermissionsExt::from_mode(0o600))
+        .map_err(failed)?;
+
+    Ok(())
 }
 
 #[cfg(test)]
