@@ -12,3 +12,7 @@ nonstandard_style = "deny"
 
 [profile.dev]
 debug = false
+
+[dependencies]
+serde_json = "1"
+tiktoken-rs = "0.12"
