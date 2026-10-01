@@ -59,6 +59,10 @@ fn closed(error: &std::io::Error) -> bool {
         || (cfg!(windows) && error.raw_os_error() == Some(232))
 }
 
+fn base_url_of(environment: &Environment) -> &str {
+    present(environment.base_url.as_deref()).unwrap_or(BASE_URL)
+}
+
 fn key_path_from(environment: &Environment) -> Result<std::path::PathBuf, String> {
     key_path_of(
         cfg!(windows),
@@ -115,8 +119,7 @@ fn score(
         },
     };
     let key = key_of(environment.api_key.as_deref(), stored.as_deref())?;
-    let base_url = present(environment.base_url.as_deref()).unwrap_or(BASE_URL);
-    let client = Client::new(base_url.to_string(), key);
+    let client = Client::new(base_url_of(environment).to_string(), key);
     let columns = score_records(&client, &texts, &questions)?;
     let mut stdout = BufWriter::new(&mut *streams.stdout);
 
@@ -206,6 +209,10 @@ fn main() {
 
     std::process::exit(code);
 }
+
+#[cfg(test)]
+#[path = "main.test.rs"]
+mod tests;
 
 #[cfg(test)]
 #[path = "main.integration.test.rs"]

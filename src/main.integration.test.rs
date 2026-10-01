@@ -441,3 +441,70 @@ fn a_set_key_needs_no_key_folder() {
         ("0.5\ta\n".to_string(), SUCCESS)
     );
 }
+
+#[test]
+fn empty_stdin_exits_zero_without_a_key_or_a_request() {
+    let mock = MockJev::start(half);
+    let outcome = outcome_of(&["Is this a?"], b"", pathless_of(None, &mock));
+
+    assert_eq!(
+        (outcome.stdout, outcome.stderr, outcome.code),
+        (Vec::new(), String::new(), SUCCESS)
+    );
+    assert_eq!(mock.requests.lock().unwrap().len(), 0);
+}
+
+#[test]
+fn non_utf8_records_round_trip_byte_exact() {
+    let folder = Folder::new();
+    let mock = MockJev::start(half);
+    let outcome = outcome_of(
+        &["Is this a?"],
+        b"a\xff\n\xfe\xfdb\n",
+        folder.environment_of(Some("test"), &mock),
+    );
+
+    assert_eq!(
+        (outcome.stdout, outcome.code),
+        (b"0.5\ta\xff\n0.5\t\xfe\xfdb\n".to_vec(), SUCCESS)
+    );
+    assert_eq!(
+        mock.requests.lock().unwrap()[0].body["state"]["lines"]["L0"],
+        "a\u{fffd}"
+    );
+}
+
+#[test]
+fn an_unreadable_key_file_raises() {
+    let folder = Folder::new();
+    let mock = MockJev::start(half);
+    let path = folder.path.join("pyes").join("key");
+
+    std::fs::create_dir_all(&path).unwrap();
+
+    let outcome = outcome_of(&["Is this a?"], b"a\n", folder.environment_of(None, &mock));
+
+    assert_eq!(outcome.code, FAILURE);
+    assert!(outcome
+        .stderr
+        .starts_with(&format!("pyes: {}: ", path.display())));
+    assert_eq!(mock.requests.lock().unwrap().len(), 0);
+}
+
+#[test]
+fn a_blank_environment_key_falls_back_to_the_stored_key() {
+    let folder = Folder::new();
+    let mock = MockJev::start(half);
+    let stored = outcome_of(&["auth"], b"stored\n", folder.environment_of(None, &mock));
+    let scored = outcome_of(
+        &["Is this a?"],
+        b"a\n",
+        folder.environment_of(Some("  "), &mock),
+    );
+
+    assert_eq!((stored.code, scored.code), (SUCCESS, SUCCESS));
+    assert_eq!(
+        mock.requests.lock().unwrap()[0].header_of("authorization"),
+        Some("Bearer stored")
+    );
+}

@@ -36,6 +36,17 @@ mod integration {
 
         child.stdin.take().unwrap().write_all(b"a\nb\nc\n").unwrap();
 
+        let read_of = |mut pipe: Box<dyn Read + std::marker::Send>| {
+            std::thread::spawn(move || {
+                let mut text = String::new();
+
+                pipe.read_to_string(&mut text).unwrap();
+
+                text
+            })
+        };
+        let stdout = read_of(Box::new(child.stdout.take().unwrap()));
+        let stderr = read_of(Box::new(child.stderr.take().unwrap()));
         let started_at = Instant::now();
 
         let status = loop {
@@ -52,21 +63,8 @@ mod integration {
             std::thread::sleep(Duration::from_millis(10));
         };
 
-        let mut stdout = String::new();
-        let mut stderr = String::new();
-
-        child
-            .stdout
-            .take()
-            .unwrap()
-            .read_to_string(&mut stdout)
-            .unwrap();
-        child
-            .stderr
-            .take()
-            .unwrap()
-            .read_to_string(&mut stderr)
-            .unwrap();
+        let stdout = stdout.join().unwrap();
+        let stderr = stderr.join().unwrap();
 
         assert_eq!(
             (stdout.as_str(), stderr.as_str(), status.code()),

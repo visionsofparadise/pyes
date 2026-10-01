@@ -54,6 +54,17 @@ fn auth_is_a_subcommand() {
 }
 
 #[test]
+fn auth_after_a_separator_is_a_question() {
+    assert_eq!(
+        command_of(&["--", "auth"]),
+        Ok(Command::Score {
+            questions: vec!["auth".to_string()],
+            separator: Separator::Newline,
+        })
+    );
+}
+
+#[test]
 fn help_is_a_question() {
     assert_eq!(
         command_of(&["help"]),
