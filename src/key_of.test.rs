@@ -55,3 +55,22 @@ fn elsewhere_home_config_is_the_fallback() {
         Err("neither XDG_CONFIG_HOME nor HOME is set".to_string())
     );
 }
+
+#[test]
+fn a_leading_byte_order_mark_is_stripped() {
+    assert_eq!(bare_key_of("\u{feff} key\r\n"), "key");
+    assert_eq!(
+        key_of(None, Some("\u{feff}stored")),
+        Ok("stored".to_string())
+    );
+}
+
+#[test]
+fn a_key_outside_visible_ascii_is_refused() {
+    let refused = Err("the API key contains characters an HTTP header cannot carry".to_string());
+
+    assert_eq!(key_of(Some("a b"), None), refused);
+    assert_eq!(key_of(None, Some("ké")), refused);
+    assert_eq!(header_key_of("a\u{7f}"), refused);
+    assert_eq!(header_key_of("!~"), Ok("!~".to_string()));
+}

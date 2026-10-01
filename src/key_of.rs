@@ -24,14 +24,27 @@ pub fn key_path_of(
     Ok(folder.join("pyes").join("key"))
 }
 
+pub fn bare_key_of(text: &str) -> &str {
+    text.strip_prefix('\u{feff}').unwrap_or(text).trim()
+}
+
+pub fn header_key_of(key: &str) -> Result<String, String> {
+    if key.bytes().all(|byte| (0x21..=0x7e).contains(&byte)) {
+        Ok(key.to_string())
+    } else {
+        Err("the API key contains characters an HTTP header cannot carry".to_string())
+    }
+}
+
 pub fn key_of(environment: Option<&str>, stored: Option<&str>) -> Result<String, String> {
-    [environment, stored]
+    let key = [environment, stored]
         .into_iter()
         .flatten()
-        .map(str::trim)
+        .map(bare_key_of)
         .find(|key| !key.is_empty())
-        .map(str::to_string)
-        .ok_or_else(|| "no API key: set TYPESAFE_API_KEY or run `pyes auth`".to_string())
+        .ok_or_else(|| "no API key: set TYPESAFE_API_KEY or run `pyes auth`".to_string())?;
+
+    header_key_of(key)
 }
 
 pub fn read_stored_key(path: &Path) -> Result<Option<String>, String> {

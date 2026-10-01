@@ -19,7 +19,7 @@ use clap::error::ErrorKind;
 use clap::Parser;
 
 use attempt::{Client, BASE_URL};
-use key_of::{key_of, key_path_of, read_stored_key, store_key};
+use key_of::{bare_key_of, header_key_of, key_of, key_path_of, read_stored_key, store_key};
 use parse_arguments::{parse_arguments, Arguments, Command};
 use score_records::score_records;
 use split_records::{split_records, terminator_of, Separator};
@@ -71,13 +71,13 @@ fn authenticate(environment: &Environment, streams: &mut Streams) -> Result<(), 
         .read_to_string(&mut input)
         .map_err(|error| format!("stdin: {error}"))?;
 
-    let key = input.trim();
+    let key = bare_key_of(&input);
 
     if key.is_empty() {
         return Err("no key on stdin".to_string());
     }
 
-    store_key(&key_path_from(environment)?, key)
+    store_key(&key_path_from(environment)?, &header_key_of(key)?)
 }
 
 fn score(

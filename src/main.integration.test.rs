@@ -317,3 +317,45 @@ fn auth_stores_the_key_and_the_environment_key_wins_over_it() {
         vec![Some("Bearer stored"), Some("Bearer test")]
     );
 }
+
+#[test]
+fn a_key_a_header_cannot_carry_is_refused_before_any_request() {
+    let folder = Folder::new();
+    let mock = MockJev::start(half);
+    let refused = "pyes: the API key contains characters an HTTP header cannot carry\n";
+    let stored = outcome_of(
+        &["auth"],
+        "k\u{e9}y\n".as_bytes(),
+        folder.environment_of(None, &mock),
+    );
+    let scored = outcome_of(
+        &["Is this a?"],
+        b"a\n",
+        folder.environment_of(Some("k\u{1}y"), &mock),
+    );
+
+    assert_eq!((stored.stderr.as_str(), stored.code), (refused, FAILURE));
+    assert!(!folder.path.join("pyes").join("key").exists());
+    assert_eq!(
+        (scored.stdout, scored.stderr.as_str(), scored.code),
+        (Vec::new(), refused, FAILURE)
+    );
+    assert_eq!(mock.requests.lock().unwrap().len(), 0);
+}
+
+#[test]
+fn auth_strips_a_byte_order_mark() {
+    let folder = Folder::new();
+    let mock = MockJev::start(half);
+    let stored = outcome_of(
+        &["auth"],
+        "\u{feff}stored\r\n".as_bytes(),
+        folder.environment_of(None, &mock),
+    );
+
+    assert_eq!(stored.code, SUCCESS);
+    assert_eq!(
+        std::fs::read_to_string(folder.path.join("pyes").join("key")).unwrap(),
+        "stored"
+    );
+}
