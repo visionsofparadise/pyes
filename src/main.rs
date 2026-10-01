@@ -1,6 +1,8 @@
 #[allow(dead_code)]
 mod answers_of;
 #[allow(dead_code)]
+mod attempt;
+#[allow(dead_code)]
 mod chunks_of;
 #[allow(dead_code)]
 mod estimate_of;
@@ -10,6 +12,8 @@ mod key_of;
 mod parse_arguments;
 #[allow(dead_code)]
 mod request_of;
+#[allow(dead_code)]
+mod score_records;
 #[allow(dead_code)]
 mod split_records;
 #[allow(dead_code)]
