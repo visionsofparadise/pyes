@@ -33,6 +33,14 @@ fn strips_carriage_returns_in_newline_mode() {
 }
 
 #[test]
+fn newline_mode_strips_exactly_one_carriage_return() {
+    assert_eq!(
+        split_records(b"a\r\r\n", &Separator::Newline),
+        vec![&b"a\r"[..]]
+    );
+}
+
+#[test]
 fn splits_on_a_multi_byte_text_separator() {
     assert_eq!(
         split_records(b"a--b---c--", &Separator::Text(b"--".to_vec())),
