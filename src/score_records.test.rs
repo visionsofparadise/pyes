@@ -349,3 +349,58 @@ fn jitter_stays_within_75_to_100_percent() {
         }
     }
 }
+
+#[test]
+fn a_transient_retry_waits_out_a_hold_set_during_its_wait() {
+    let run = run_of(2, 1, vec![vec![0..1, 1..2]], |call, index| {
+        match (call.records[0].as_str(), index) {
+            ("r0", 0 | 1) => Err(Failure::Transient {
+                message: "HTTP 503: busy".to_string(),
+                retry_after: Some(Duration::from_millis(100)),
+            }),
+            ("r1", 0 | 1) => {
+                std::thread::sleep(Duration::from_millis(20));
+
+                Err(rate_limited(300))
+            }
+            _ => answered(call),
+        }
+    });
+
+    assert_eq!(run.result, Ok(vec![vec![0.0, 1.0]]));
+
+    let first_of = |record: &str| {
+        run.calls
+            .iter()
+            .position(|call| call.records[0] == record)
+            .unwrap()
+    };
+    let rate_limited_at = run.calls[first_of("r1")].at;
+    let retried = run
+        .calls
+        .iter()
+        .filter(|call| call.records[0] == "r0")
+        .nth(1)
+        .unwrap();
+
+    assert!(retried.at - rate_limited_at >= Duration::from_millis(300));
+}
+
+#[test]
+fn a_fatal_ends_a_transient_wait_without_another_send() {
+    let run = run_of(2, 1, vec![vec![0..1, 1..2]], |call, _| {
+        if call.records[0] == "r0" {
+            return Err(Failure::Transient {
+                message: "HTTP 503: busy".to_string(),
+                retry_after: Some(Duration::from_secs(30)),
+            });
+        }
+
+        std::thread::sleep(Duration::from_millis(50));
+
+        Err(Failure::Fatal("HTTP 401: denied".to_string()))
+    });
+
+    assert_eq!(run.result, Err("HTTP 401: denied".to_string()));
+    assert_eq!(run.calls.len(), 2);
+}

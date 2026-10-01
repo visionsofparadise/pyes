@@ -142,19 +142,28 @@ fn run_job(shared: &Shared, send: &Send, records: &[String], questions: &[String
                     return;
                 }
 
-                let until = state
-                    .resume_at
-                    .max(Instant::now() + delay_of(job.retries, retry_after));
+                let due = Instant::now() + delay_of(job.retries, retry_after);
 
-                drop(state);
+                loop {
+                    if state.fatal.is_some() {
+                        return;
+                    }
 
-                std::thread::sleep(until.saturating_duration_since(Instant::now()));
+                    let until = due.max(state.resume_at);
+                    let now = Instant::now();
+
+                    if until <= now {
+                        break;
+                    }
+
+                    state = shared
+                        .changed
+                        .wait_timeout(state, until - now)
+                        .unwrap_or_else(PoisonError::into_inner)
+                        .0;
+                }
 
                 job.retries += 1;
-
-                if shared.lock().fatal.is_some() {
-                    return;
-                }
             }
             Err(Failure::TooLarge) if job.range.len() == 1 => {
                 state.record(format!(
@@ -254,11 +263,19 @@ pub fn score_ranges(
                 }
 
                 if let Some(job) = state.queue.pop_front() {
-                    state.in_flight += 1;
-
                     let shared = &shared;
+                    let spawned = std::thread::Builder::new().spawn_scoped(scope, move || {
+                        run_job(shared, send, records, questions, job)
+                    });
 
-                    scope.spawn(move || run_job(shared, send, records, questions, job));
+                    match spawned {
+                        Ok(_) => state.in_flight += 1,
+                        Err(error) => {
+                            state.record(format!("could not start a request thread: {error}"));
+
+                            shared.changed.notify_all();
+                        }
+                    }
                 }
             }
         });
