@@ -3,6 +3,8 @@ mod attempt;
 mod chunks_of;
 mod estimate_of;
 mod key_of;
+#[cfg(test)]
+mod mock_jev;
 mod parse_arguments;
 mod request_of;
 mod score_records;
@@ -182,3 +184,7 @@ fn main() {
 
     std::process::exit(code);
 }
+
+#[cfg(test)]
+#[path = "main.integration.test.rs"]
+mod integration;
