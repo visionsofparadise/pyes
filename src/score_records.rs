@@ -59,7 +59,13 @@ impl State {
         self.fatal.get_or_insert(message);
     }
 
-    fn hold(&mut self, retry_after: Option<Duration>) {
+    fn answer(&mut self, job: &Job, answers: &[f64]) {
+        self.columns[job.question][job.range.clone()].copy_from_slice(answers);
+
+        self.consecutive_rate_limits = 0;
+    }
+
+    fn hold(&mut self, job: Job, retry_after: Option<Duration>) {
         self.consecutive_rate_limits += 1;
 
         let now = Instant::now();
@@ -78,6 +84,32 @@ impl State {
         if self.held > HOLD_LIMIT {
             self.record("rate limited for 10 minutes".to_string());
         }
+
+        self.queue.push_front(job);
+    }
+
+    fn split(&mut self, job: Job) {
+        if job.range.len() == 1 {
+            self.record(format!(
+                "record {} exceeds Jev's request limits",
+                job.range.start + 1
+            ));
+
+            return;
+        }
+
+        let middle = job.range.start + job.range.len() / 2;
+
+        self.queue.push_front(Job {
+            question: job.question,
+            range: middle..job.range.end,
+            retries: job.retries,
+        });
+        self.queue.push_front(Job {
+            question: job.question,
+            range: job.range.start..middle,
+            retries: job.retries,
+        });
     }
 }
 
@@ -120,15 +152,12 @@ fn run_job(shared: &Shared, send: &Send, records: &[String], questions: &[String
 
         match outcome {
             Ok((answers, _)) => {
-                state.columns[job.question][job.range.clone()].copy_from_slice(&answers);
-
-                state.consecutive_rate_limits = 0;
+                state.answer(&job, &answers);
 
                 return;
             }
             Err(Failure::RateLimited { retry_after }) => {
-                state.hold(retry_after);
-                state.queue.push_front(job);
+                state.hold(job, retry_after);
 
                 return;
             }
@@ -165,27 +194,8 @@ fn run_job(shared: &Shared, send: &Send, records: &[String], questions: &[String
 
                 job.retries += 1;
             }
-            Err(Failure::TooLarge) if job.range.len() == 1 => {
-                state.record(format!(
-                    "record {} exceeds Jev's request limits",
-                    job.range.start + 1
-                ));
-
-                return;
-            }
             Err(Failure::TooLarge) => {
-                let middle = job.range.start + job.range.len() / 2;
-
-                state.queue.push_front(Job {
-                    question: job.question,
-                    range: middle..job.range.end,
-                    retries: job.retries,
-                });
-                state.queue.push_front(Job {
-                    question: job.question,
-                    range: job.range.start..middle,
-                    retries: job.retries,
-                });
+                state.split(job);
 
                 return;
             }

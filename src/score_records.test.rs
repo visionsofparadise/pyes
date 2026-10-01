@@ -404,3 +404,122 @@ fn a_fatal_ends_a_transient_wait_without_another_send() {
     assert_eq!(run.result, Err("HTTP 401: denied".to_string()));
     assert_eq!(run.calls.len(), 2);
 }
+
+fn job_of(range: Range<usize>, retries: u32) -> Job {
+    Job {
+        question: 0,
+        range,
+        retries,
+    }
+}
+
+fn state_of() -> State {
+    State {
+        queue: VecDeque::new(),
+        columns: vec![vec![0.0]],
+        in_flight: 0,
+        resume_at: Instant::now(),
+        consecutive_rate_limits: 0,
+        held: Duration::ZERO,
+        fatal: None,
+    }
+}
+
+fn queued_of(state: &State) -> Vec<(Range<usize>, u32)> {
+    state
+        .queue
+        .iter()
+        .map(|job| (job.range.clone(), job.retries))
+        .collect()
+}
+
+#[test]
+fn the_first_bare_rate_limit_backs_off_from_500_ms() {
+    let mut state = state_of();
+
+    state.hold(job_of(0..1, 0), None);
+
+    assert!(state.held >= Duration::from_millis(375) && state.held <= Duration::from_millis(500));
+}
+
+#[test]
+fn a_success_restarts_the_rate_limit_backoff() {
+    let mut state = state_of();
+
+    for _ in 0..3 {
+        state.hold(job_of(0..1, 0), None);
+    }
+
+    state.answer(&job_of(0..1, 0), &[0.5]);
+
+    state.resume_at = Instant::now();
+    state.held = Duration::ZERO;
+
+    state.hold(job_of(0..1, 0), None);
+
+    assert_eq!(state.columns, vec![vec![0.5]]);
+    assert!(state.held <= Duration::from_millis(500));
+}
+
+#[test]
+fn overlapping_holds_charge_only_their_extension() {
+    let mut state = state_of();
+
+    state.hold(job_of(0..1, 0), Some(Duration::from_secs(400)));
+    state.hold(job_of(0..1, 0), Some(Duration::from_secs(400)));
+
+    assert!(state.held < Duration::from_secs(401));
+    assert_eq!(state.fatal, None);
+}
+
+#[test]
+fn a_hold_past_the_limit_is_fatal() {
+    let mut state = state_of();
+
+    state.hold(job_of(0..1, 0), Some(HOLD_LIMIT + Duration::from_secs(1)));
+
+    assert_eq!(state.fatal, Some("rate limited for 10 minutes".to_string()));
+}
+
+#[test]
+fn a_rate_limited_job_goes_back_ahead_of_the_queue() {
+    let mut state = state_of();
+
+    state.queue.push_back(job_of(1..2, 0));
+    state.hold(job_of(0..1, 2), Some(Duration::from_millis(1)));
+
+    assert_eq!(queued_of(&state), vec![(0..1, 2), (1..2, 0)]);
+}
+
+#[test]
+fn split_halves_go_ahead_of_the_queue_first_half_first_with_the_retries_spent() {
+    let mut state = state_of();
+
+    state.queue.push_back(job_of(5..6, 0));
+    state.split(job_of(0..5, 3));
+
+    assert_eq!(queued_of(&state), vec![(0..2, 3), (2..5, 3), (5..6, 0)]);
+}
+
+#[test]
+fn a_panic_stops_further_dispatch() {
+    let run = run_of(2, 1, vec![vec![0..1, 1..2]], |call, index| {
+        if call.records[0] == "r1" {
+            std::thread::sleep(Duration::from_millis(20));
+
+            panic!("send failed");
+        }
+
+        if index < 2 {
+            return Err(rate_limited(100));
+        }
+
+        answered(call)
+    });
+
+    assert_eq!(
+        run.result,
+        Err("internal error: a request thread panicked".to_string())
+    );
+    assert_eq!(run.calls.len(), 2);
+}
