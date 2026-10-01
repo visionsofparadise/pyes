@@ -204,3 +204,49 @@ fn an_unparseable_or_negative_retry_after_ms_defers_to_seconds() {
         }
     );
 }
+
+#[test]
+fn a_past_http_date_retries_at_once() {
+    let now = httpdate::parse_http_date("Wed, 21 Oct 2015 07:28:00 GMT").unwrap();
+
+    assert_eq!(
+        failure_of(429, "{}", None, Some("Wed, 21 Oct 2015 07:27:30 GMT"), now),
+        Failure::RateLimited {
+            retry_after: Some(Duration::ZERO)
+        }
+    );
+}
+
+#[test]
+fn the_status_range_ends_at_599() {
+    assert!(matches!(fail(599, "{}"), Failure::Transient { .. }));
+    assert_eq!(fail(600, "{}"), Failure::Fatal("HTTP 600: {}".to_string()));
+}
+
+#[test]
+fn header_values_parse_around_whitespace() {
+    assert_eq!(
+        failure_of(429, "{}", Some(" 250 "), None, NOW),
+        Failure::RateLimited {
+            retry_after: Some(Duration::from_millis(250))
+        }
+    );
+    assert_eq!(
+        failure_of(429, "{}", None, Some(" 5 "), NOW),
+        Failure::RateLimited {
+            retry_after: Some(Duration::from_secs(5))
+        }
+    );
+    assert_eq!(
+        failure_of(
+            429,
+            "{}",
+            None,
+            Some(" Thu, 01 Jan 1970 00:00:30 GMT "),
+            NOW
+        ),
+        Failure::RateLimited {
+            retry_after: Some(Duration::from_secs(30))
+        }
+    );
+}
