@@ -29,10 +29,21 @@ impl Client {
     }
 }
 
-fn transient_of(error: ureq::Error) -> Failure {
-    Failure::Transient {
-        message: format!("request failed: {error}"),
-        retry_after: None,
+fn request_failure_of(error: ureq::Error) -> Failure {
+    let message = format!("request failed: {error}");
+
+    match error {
+        ureq::Error::Io(_)
+        | ureq::Error::Timeout(_)
+        | ureq::Error::HostNotFound
+        | ureq::Error::ConnectionFailed
+        | ureq::Error::Protocol(_)
+        | ureq::Error::ConnectProxyFailed(_)
+        | ureq::Error::Decompress(..) => Failure::Transient {
+            message,
+            retry_after: None,
+        },
+        _ => Failure::Fatal(message),
     }
 }
 
@@ -46,7 +57,7 @@ pub fn attempt(client: &Client, body: &Value, count: usize) -> Result<(Vec<f64>,
         .header("Authorization", format!("Bearer {}", client.key))
         .content_type("application/json")
         .send(&payload[..])
-        .map_err(transient_of)?;
+        .map_err(request_failure_of)?;
     let status = response.status().as_u16();
     let header_of = |name: &str| {
         response
@@ -59,7 +70,10 @@ pub fn attempt(client: &Client, body: &Value, count: usize) -> Result<(Vec<f64>,
     let retry_after = header_of("retry-after");
 
     if status == 200 {
-        let text = response.body_mut().read_to_string().map_err(transient_of)?;
+        let text = response
+            .body_mut()
+            .read_to_string()
+            .map_err(request_failure_of)?;
 
         return answers_of(&text, count).map_err(Failure::Fatal);
     }
@@ -74,3 +88,7 @@ pub fn attempt(client: &Client, body: &Value, count: usize) -> Result<(Vec<f64>,
         SystemTime::now(),
     ))
 }
+
+#[cfg(test)]
+#[path = "attempt.test.rs"]
+mod tests;
