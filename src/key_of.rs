@@ -124,11 +124,11 @@ pub fn store_key(path: &Path, key: &str) -> Result<(), String> {
 
     let mut file = options.open(path).map_err(failed)?;
 
-    file.write_all(key.as_bytes()).map_err(failed)?;
-
     #[cfg(unix)]
-    fs::set_permissions(path, std::os::unix::fs::PermissionsExt::from_mode(0o600))
+    file.set_permissions(std::os::unix::fs::PermissionsExt::from_mode(0o600))
         .map_err(failed)?;
+
+    file.write_all(key.as_bytes()).map_err(failed)?;
 
     Ok(())
 }
