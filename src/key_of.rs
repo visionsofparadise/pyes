@@ -2,15 +2,15 @@ use std::fs;
 use std::io::{ErrorKind, Write};
 use std::path::{Path, PathBuf};
 
-fn present(value: Option<&str>) -> Option<&str> {
+fn set_value_of(value: Option<&str>) -> Option<&str> {
     value.filter(|value| !value.is_empty())
 }
 
-fn unix_absolute(path: &str) -> bool {
+fn is_unix_absolute(path: &str) -> bool {
     path.starts_with('/')
 }
 
-fn windows_absolute(path: &str) -> bool {
+fn is_windows_absolute(path: &str) -> bool {
     let bytes = path.as_bytes();
 
     path.starts_with(r"\\")
@@ -25,15 +25,15 @@ fn folder_of<'a>(
     name: &str,
     value: Option<&'a str>,
     not_unicode: &[&str],
-    absolute: fn(&str) -> bool,
+    is_absolute: fn(&str) -> bool,
 ) -> Result<&'a str, String> {
     if not_unicode.contains(&name) {
         return Err(format!("{name} is not valid Unicode"));
     }
 
-    match present(value) {
+    match set_value_of(value) {
         None => Err(format!("{name} is not set")),
-        Some(path) if !absolute(path) => Err(format!("{name} is relative")),
+        Some(path) if !is_absolute(path) => Err(format!("{name} is relative")),
         Some(path) => Ok(path),
     }
 }
@@ -50,7 +50,7 @@ pub fn key_path_of(
             "APPDATA",
             appdata,
             not_unicode,
-            windows_absolute,
+            is_windows_absolute,
         )?)
     } else {
         match (
@@ -58,9 +58,9 @@ pub fn key_path_of(
                 "XDG_CONFIG_HOME",
                 xdg_config_home,
                 not_unicode,
-                unix_absolute,
+                is_unix_absolute,
             ),
-            folder_of("HOME", home, not_unicode, unix_absolute),
+            folder_of("HOME", home, not_unicode, is_unix_absolute),
         ) {
             (Ok(xdg_config_home), _) => PathBuf::from(xdg_config_home),
             (_, Ok(home)) => PathBuf::from(home).join(".config"),
@@ -80,12 +80,13 @@ pub fn stored_key_path_of(
     home: Option<&str>,
     not_unicode: &[&str],
 ) -> Result<Option<PathBuf>, String> {
-    let unset =
-        |name: &str, value: Option<&str>| present(value).is_none() && !not_unicode.contains(&name);
+    let is_unset = |name: &str, value: Option<&str>| {
+        set_value_of(value).is_none() && !not_unicode.contains(&name)
+    };
     let every_folder_unset = if windows {
-        unset("APPDATA", appdata)
+        is_unset("APPDATA", appdata)
     } else {
-        unset("XDG_CONFIG_HOME", xdg_config_home) && unset("HOME", home)
+        is_unset("XDG_CONFIG_HOME", xdg_config_home) && is_unset("HOME", home)
     };
 
     if every_folder_unset {
