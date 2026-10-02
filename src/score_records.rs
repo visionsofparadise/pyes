@@ -107,17 +107,18 @@ impl State {
     }
 
     fn hold(&mut self, job: Job, retry_after: Option<Duration>) {
-        self.hold_at(job, retry_after, Instant::now());
+        self.hold_from(job, retry_after, Instant::now());
     }
 
-    fn hold_at(&mut self, job: Job, retry_after: Option<Duration>, now: Instant) {
+    fn hold_from(&mut self, job: Job, retry_after: Option<Duration>, refused_at: Instant) {
         self.consecutive_rate_limits += 1;
 
-        self.rate_limited_at.get_or_insert(self.resume_at.max(now));
+        self.rate_limited_at
+            .get_or_insert(self.resume_at.max(refused_at));
 
         self.resume_at = self
             .resume_at
-            .max(now + delay_of(self.consecutive_rate_limits - 1, retry_after));
+            .max(refused_at + delay_of(self.consecutive_rate_limits - 1, retry_after));
 
         if self.rate_limited_of() > HOLD_LIMIT {
             self.record("rate limited for 10 minutes".to_string());
@@ -217,15 +218,15 @@ fn run_job(shared: &Shared, send: &Send, records: &[String], questions: &[String
                     }
 
                     let send_at = due_at.max(state.resume_at);
-                    let now = Instant::now();
+                    let checked_at = Instant::now();
 
-                    if send_at <= now {
+                    if send_at <= checked_at {
                         break;
                     }
 
                     state = shared
                         .changed
-                        .wait_timeout(state, send_at - now)
+                        .wait_timeout(state, send_at - checked_at)
                         .unwrap_or_else(PoisonError::into_inner)
                         .0;
                 }
@@ -307,10 +308,10 @@ fn score_ranges_over(
                     continue;
                 }
 
-                let now = Instant::now();
+                let checked_at = Instant::now();
 
-                if state.resume_at > now {
-                    let timeout = state.resume_at - now;
+                if state.resume_at > checked_at {
+                    let timeout = state.resume_at - checked_at;
 
                     state = shared
                         .changed

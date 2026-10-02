@@ -801,7 +801,7 @@ fn overlapping_holds_are_charged_once() {
 }
 
 fn hold_after(state: &mut State, started_at: Instant, seconds: u64) {
-    state.hold_at(
+    state.hold_from(
         job_of(0..1, 0),
         Some(Duration::from_millis(1)),
         started_at + Duration::from_secs(seconds),
