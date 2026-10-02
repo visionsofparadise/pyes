@@ -232,11 +232,11 @@ fn overflows_split_until_every_row_answers() {
     assert!(mock.requests.lock().unwrap().len() > 1);
 }
 
-#[test]
-fn a_rate_limit_holds_the_next_request() {
+fn gap_after_a_rate_limit_of(name: &str, value: &str) -> Duration {
     let folder = Folder::new();
     let arrivals = Arc::new(Mutex::new(Vec::new()));
     let recorded = Arc::clone(&arrivals);
+    let header = (name.to_string(), value.to_string());
     let mock = MockJev::start(move |request| {
         let mut arrivals = recorded.lock().unwrap();
 
@@ -245,7 +245,7 @@ fn a_rate_limit_holds_the_next_request() {
         if arrivals.len() == 1 {
             return (
                 429,
-                vec![("retry-after-ms".to_string(), "50".to_string())],
+                vec![header.clone()],
                 r#"{"detail":"rate limited"}"#.to_string(),
             );
         }
@@ -254,19 +254,38 @@ fn a_rate_limit_holds_the_next_request() {
     });
     let outcome = outcome_of(
         &["Is this a?"],
-        b"a\nb\n",
+        b"a
+b
+",
         folder.environment_of(Some("test"), &mock),
     );
 
     assert_eq!(
         (text_of(&outcome.stdout), outcome.code),
-        ("0.5\ta\n0.5\tb\n".to_string(), SUCCESS)
+        (
+            "0.5	a
+0.5	b
+"
+            .to_string(),
+            SUCCESS
+        )
     );
 
     let arrivals = arrivals.lock().unwrap();
 
     assert_eq!(arrivals.len(), 2);
-    assert!(arrivals[1] - arrivals[0] >= Duration::from_millis(50));
+
+    arrivals[1] - arrivals[0]
+}
+
+#[test]
+fn a_rate_limit_holds_the_next_request_for_its_retry_after_ms() {
+    assert!(gap_after_a_rate_limit_of("retry-after-ms", "1200") >= Duration::from_millis(1200));
+}
+
+#[test]
+fn a_rate_limit_holds_the_next_request_for_its_retry_after_seconds() {
+    assert!(gap_after_a_rate_limit_of("Retry-After", "1") >= Duration::from_secs(1));
 }
 
 #[test]
