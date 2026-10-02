@@ -344,7 +344,7 @@ fn auth_stores_the_key_and_the_environment_key_wins_over_it() {
 fn a_key_a_header_cannot_carry_is_refused_before_any_request() {
     let folder = Folder::new();
     let mock = MockJev::start(half);
-    let refused = "pyes: the API key contains characters an HTTP header cannot carry\n";
+    let path = folder.path.join("pyes").join("key");
     let stored = outcome_of(
         &["auth"],
         "k\u{e9}y\n".as_bytes(),
@@ -356,11 +356,37 @@ fn a_key_a_header_cannot_carry_is_refused_before_any_request() {
         folder.environment_of(Some("k\u{1}y"), &mock),
     );
 
-    assert_eq!((stored.stderr.as_str(), stored.code), (refused, FAILURE));
-    assert!(!folder.path.join("pyes").join("key").exists());
+    assert_eq!(
+        (stored.stderr.as_str(), stored.code),
+        (
+            "pyes: the key on stdin contains characters an HTTP header cannot carry\n",
+            FAILURE
+        )
+    );
+    assert!(!path.exists());
     assert_eq!(
         (scored.stdout, scored.stderr.as_str(), scored.code),
-        (Vec::new(), refused, FAILURE)
+        (
+            Vec::new(),
+            "pyes: TYPESAFE_API_KEY contains characters an HTTP header cannot carry\n",
+            FAILURE
+        )
+    );
+
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(&path, "k\u{e9}y").unwrap();
+
+    let from_file = outcome_of(&["Is this a?"], b"a\n", folder.environment_of(None, &mock));
+
+    assert_eq!(
+        (from_file.stderr, from_file.code),
+        (
+            format!(
+                "pyes: the key in {} contains characters an HTTP header cannot carry\n",
+                path.display()
+            ),
+            FAILURE
+        )
     );
     assert_eq!(mock.requests.lock().unwrap().len(), 0);
 }

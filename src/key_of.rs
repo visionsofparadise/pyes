@@ -77,23 +77,27 @@ pub fn bare_key_of(text: &str) -> &str {
     text.strip_prefix('\u{feff}').unwrap_or(text).trim()
 }
 
-pub fn header_key_of(key: &str) -> Result<String, String> {
+pub fn header_key_of(key: &str, source: &str) -> Result<String, String> {
     if key.bytes().all(|byte| (0x21..=0x7e).contains(&byte)) {
         Ok(key.to_string())
     } else {
-        Err("the API key contains characters an HTTP header cannot carry".to_string())
+        Err(format!(
+            "{source} contains characters an HTTP header cannot carry"
+        ))
     }
 }
 
-pub fn key_of(environment: Option<&str>, stored: Option<&str>) -> Result<String, String> {
-    let key = [environment, stored]
-        .into_iter()
-        .flatten()
-        .map(bare_key_of)
-        .find(|key| !key.is_empty())
-        .ok_or_else(|| "no API key: set TYPESAFE_API_KEY or run `pyes auth`".to_string())?;
+pub fn key_of(environment: Option<&str>, stored: Option<(&Path, &str)>) -> Result<String, String> {
+    if let Some(key) = environment.map(bare_key_of).filter(|key| !key.is_empty()) {
+        return header_key_of(key, "TYPESAFE_API_KEY");
+    }
 
-    header_key_of(key)
+    match stored.map(|(path, text)| (path, bare_key_of(text))) {
+        Some((path, key)) if !key.is_empty() => {
+            header_key_of(key, &format!("the key in {}", path.display()))
+        }
+        _ => Err("no API key: set TYPESAFE_API_KEY or run `pyes auth`".to_string()),
+    }
 }
 
 pub fn read_stored_key(path: &Path) -> Result<Option<String>, String> {

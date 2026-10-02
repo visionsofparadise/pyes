@@ -100,7 +100,10 @@ fn authenticate(environment: &Environment, streams: &mut Streams) -> Result<(), 
         return Err("no key on stdin".to_string());
     }
 
-    store_key(&key_path_from(environment)?, &header_key_of(key)?)
+    store_key(
+        &key_path_from(environment)?,
+        &header_key_of(key, "the key on stdin")?,
+    )
 }
 
 fn score(
@@ -131,11 +134,16 @@ fn score(
     let stored = match environment.api_key.as_deref().map(bare_key_of) {
         Some(key) if !key.is_empty() => None,
         _ => match key_path_from(environment) {
-            Ok(path) => read_stored_key(&path)?,
+            Ok(path) => read_stored_key(&path)?.map(|text| (path, text)),
             Err(_) => None,
         },
     };
-    let key = key_of(environment.api_key.as_deref(), stored.as_deref())?;
+    let key = key_of(
+        environment.api_key.as_deref(),
+        stored
+            .as_ref()
+            .map(|(path, text)| (path.as_path(), text.as_str())),
+    )?;
     let client = Client::new(base_url_of(environment)?.to_string(), key);
     let columns = score_records(&client, &texts, &questions)?;
     let mut stdout = BufWriter::new(&mut *streams.stdout);

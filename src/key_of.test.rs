@@ -1,19 +1,29 @@
 use super::*;
 use std::path::Path;
 
+fn stored_of(text: &str) -> Option<(&Path, &str)> {
+    Some((Path::new("/config/pyes/key"), text))
+}
+
 #[test]
 fn the_environment_key_wins() {
     assert_eq!(
-        key_of(Some(" env\n"), Some("stored")),
+        key_of(Some(" env\n"), stored_of("stored")),
         Ok("env".to_string())
     );
 }
 
 #[test]
 fn an_empty_environment_key_falls_through_to_the_stored_key() {
-    assert_eq!(key_of(Some(""), Some("stored\n")), Ok("stored".to_string()));
-    assert_eq!(key_of(Some("  "), Some("stored")), Ok("stored".to_string()));
-    assert_eq!(key_of(None, Some("stored")), Ok("stored".to_string()));
+    assert_eq!(
+        key_of(Some(""), stored_of("stored\n")),
+        Ok("stored".to_string())
+    );
+    assert_eq!(
+        key_of(Some("  "), stored_of("stored")),
+        Ok("stored".to_string())
+    );
+    assert_eq!(key_of(None, stored_of("stored")), Ok("stored".to_string()));
 }
 
 #[test]
@@ -21,7 +31,7 @@ fn no_key_names_both_sources() {
     let missing = Err("no API key: set TYPESAFE_API_KEY or run `pyes auth`".to_string());
 
     assert_eq!(key_of(None, None), missing);
-    assert_eq!(key_of(Some(""), Some("\n")), missing);
+    assert_eq!(key_of(Some(""), stored_of("\n")), missing);
 }
 
 #[test]
@@ -60,19 +70,32 @@ fn elsewhere_home_config_is_the_fallback() {
 fn a_leading_byte_order_mark_is_stripped() {
     assert_eq!(bare_key_of("\u{feff} key\r\n"), "key");
     assert_eq!(
-        key_of(None, Some("\u{feff}stored")),
+        key_of(None, stored_of("\u{feff}stored")),
         Ok("stored".to_string())
     );
 }
 
 #[test]
 fn a_key_outside_visible_ascii_is_refused() {
-    let refused = Err("the API key contains characters an HTTP header cannot carry".to_string());
+    let refused_of = |source: &str| {
+        Err(format!(
+            "{source} contains characters an HTTP header cannot carry"
+        ))
+    };
 
-    assert_eq!(key_of(Some("a b"), None), refused);
-    assert_eq!(key_of(None, Some("ké")), refused);
-    assert_eq!(header_key_of("a\u{7f}"), refused);
-    assert_eq!(header_key_of("!~"), Ok("!~".to_string()));
+    assert_eq!(
+        key_of(Some("a b"), stored_of("stored")),
+        refused_of("TYPESAFE_API_KEY")
+    );
+    assert_eq!(
+        key_of(None, stored_of("ké")),
+        refused_of(&format!(
+            "the key in {}",
+            Path::new("/config/pyes/key").display()
+        ))
+    );
+    assert_eq!(header_key_of("a\u{7f}", "source"), refused_of("source"));
+    assert_eq!(header_key_of("!~", "source"), Ok("!~".to_string()));
 }
 
 #[test]
