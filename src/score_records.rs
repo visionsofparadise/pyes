@@ -339,18 +339,15 @@ fn score_ranges_over(
         });
     }));
 
-    if dispatched.is_err() {
-        return Err("internal error: a request thread panicked".to_string());
-    }
-
-    let state = shared
+    let State { fatal, columns, .. } = shared
         .state
         .into_inner()
         .unwrap_or_else(PoisonError::into_inner);
 
-    match state.fatal {
-        Some(message) => Err(message),
-        None => Ok(state.columns),
+    match (fatal, dispatched) {
+        (Some(message), _) => Err(message),
+        (None, Err(_)) => Err("internal error: pyes panicked".to_string()),
+        (None, Ok(())) => Ok(columns),
     }
 }
 

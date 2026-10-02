@@ -521,6 +521,49 @@ fn a_panicking_send_returns_the_internal_error() {
 }
 
 #[test]
+fn a_panic_after_a_fatal_keeps_the_fatal() {
+    let gate = Gate::default();
+    let run = run_over(
+        Spawned { threads: 1 },
+        2,
+        1,
+        vec![vec![0..1, 1..2]],
+        move |call, _| {
+            if call.records[0] == "r1" {
+                gate.open();
+
+                return Err(Failure::Fatal("HTTP 401: denied".to_string()));
+            }
+
+            gate.wait();
+
+            panic!("send failed");
+        },
+    );
+
+    assert_eq!(run.result, Err("HTTP 401: denied".to_string()));
+}
+
+struct Panicking;
+
+impl Spawner for Panicking {
+    fn spawn<'scope, 'env>(
+        &mut self,
+        _: &'scope Scope<'scope, 'env>,
+        _: Task<'scope>,
+    ) -> io::Result<()> {
+        panic!("spawn failed");
+    }
+}
+
+#[test]
+fn a_panic_outside_a_request_thread_is_not_blamed_on_one() {
+    let run = run_over(Panicking, 1, 1, vec![vec![0..1]], |call, _| answered(call));
+
+    assert_eq!(run.result, Err("internal error: pyes panicked".to_string()));
+}
+
+#[test]
 fn a_given_retry_after_is_the_delay() {
     assert_eq!(
         delay_of(3, Some(Duration::from_millis(1234))),
