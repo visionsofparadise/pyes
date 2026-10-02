@@ -7,6 +7,11 @@ use crate::answers_of::{answers_of, failure_of, Failure};
 pub const BASE_URL: &str = "https://api.typesafe.ai";
 pub const TIMEOUT: Duration = Duration::from_secs(30);
 
+#[cfg(windows)]
+const EXHAUSTION_ERRORS: [i32; 2] = [10024, 10055];
+#[cfg(not(windows))]
+const EXHAUSTION_ERRORS: [i32; 2] = [24, 23];
+
 pub struct Client {
     agent: ureq::Agent,
     base_url: String,
@@ -34,6 +39,13 @@ fn request_failure_of(error: ureq::Error) -> Failure {
     let message = format!("request failed: {error}");
 
     match error {
+        ureq::Error::Io(ref cause)
+            if cause
+                .raw_os_error()
+                .is_some_and(|code| EXHAUSTION_ERRORS.contains(&code)) =>
+        {
+            Failure::RateLimited { retry_after: None }
+        }
         ureq::Error::Io(ref cause) if cause.kind() == std::io::ErrorKind::InvalidData => {
             Failure::Fatal(message)
         }
