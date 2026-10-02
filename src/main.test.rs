@@ -52,6 +52,29 @@ fn variables_that_are_not_unicode_are_listed_by_name() {
     );
 }
 
+#[test]
+fn each_variable_is_read_by_its_own_name() {
+    let environment = environment_of(|name| Ok(name.to_string()));
+
+    assert_eq!(
+        [
+            environment.api_key,
+            environment.base_url,
+            environment.appdata,
+            environment.xdg_config_home,
+            environment.home,
+        ],
+        [
+            "TYPESAFE_API_KEY",
+            "TYPESAFE_BASE_URL",
+            "APPDATA",
+            "XDG_CONFIG_HOME",
+            "HOME",
+        ]
+        .map(|name| Some(name.to_string()))
+    );
+}
+
 fn run_of(arguments: &[&str]) -> (String, String, i32) {
     let arguments = std::iter::once("pyes")
         .chain(arguments.iter().copied())

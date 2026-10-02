@@ -434,6 +434,76 @@ fn a_closed_stdout_ends_the_run_quietly() {
     assert_eq!((stderr, code), (String::new(), SUCCESS));
 }
 
+struct FullDisk;
+
+impl Write for FullDisk {
+    fn write(&mut self, _: &[u8]) -> std::io::Result<usize> {
+        Err(std::io::Error::other("disk full"))
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+#[test]
+fn any_other_stdout_error_raises() {
+    let folder = Folder::new();
+    let mock = MockJev::start(half);
+    let (_, stderr, code) = outcome_into(
+        &["Is this a?"],
+        b"a\n",
+        folder.environment_of(Some("test"), &mock),
+        FullDisk,
+    );
+
+    assert_eq!(
+        (stderr, code),
+        ("pyes: stdout: disk full\n".to_string(), FAILURE)
+    );
+}
+
+#[test]
+fn a_second_auth_replaces_a_longer_key_whole() {
+    let folder = Folder::new();
+    let mock = MockJev::start(half);
+    let first = outcome_of(
+        &["auth"],
+        b"a-long-first-key\n",
+        folder.environment_of(None, &mock),
+    );
+    let second = outcome_of(&["auth"], b"short\n", folder.environment_of(None, &mock));
+
+    assert_eq!((first.code, second.code), (SUCCESS, SUCCESS));
+    assert_eq!(
+        std::fs::read_to_string(folder.path.join("pyes").join("key")).unwrap(),
+        "short"
+    );
+}
+
+#[test]
+fn a_set_key_skips_an_unreadable_key_file() {
+    let folder = Folder::new();
+    let mock = MockJev::start(half);
+
+    std::fs::create_dir_all(folder.path.join("pyes").join("key")).unwrap();
+
+    let outcome = outcome_of(
+        &["Is this a?"],
+        b"a\n",
+        folder.environment_of(Some("test"), &mock),
+    );
+
+    assert_eq!(
+        (text_of(&outcome.stdout), outcome.stderr, outcome.code),
+        ("0.5\ta\n".to_string(), String::new(), SUCCESS)
+    );
+    assert_eq!(
+        mock.requests.lock().unwrap()[0].header_of("authorization"),
+        Some("Bearer test")
+    );
+}
+
 fn pathless_of(api_key: Option<&str>, mock: &MockJev) -> Environment {
     Environment {
         api_key: api_key.map(str::to_string),
