@@ -3,6 +3,7 @@ use std::time::{Duration, SystemTime};
 use serde_json::Value;
 
 const RETRY_AFTER_LIMIT: Duration = Duration::from_secs(60);
+const EXCERPT_LIMIT: usize = 200;
 
 #[derive(Debug, PartialEq)]
 pub enum Failure {
@@ -73,6 +74,23 @@ fn retry_after_of(
     }
 }
 
+fn excerpt_of(body: &str) -> String {
+    let trimmed = body.trim();
+    let excerpt: String = trimmed
+        .lines()
+        .next()
+        .unwrap_or_default()
+        .chars()
+        .take(EXCERPT_LIMIT)
+        .collect();
+
+    if excerpt.len() < trimmed.len() {
+        format!("{excerpt}…")
+    } else {
+        excerpt
+    }
+}
+
 fn message_of(parsed: &Value, body: &str) -> String {
     let detail = &parsed["detail"];
 
@@ -103,7 +121,7 @@ fn message_of(parsed: &Value, body: &str) -> String {
         return error_type.to_string();
     }
 
-    body.trim().to_string()
+    excerpt_of(body)
 }
 
 pub fn failure_of(

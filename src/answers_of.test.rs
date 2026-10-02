@@ -103,6 +103,36 @@ fn a_non_json_body_is_the_message() {
 }
 
 #[test]
+fn a_non_json_body_is_cut_to_its_first_line() {
+    let page = format!(
+        "<!DOCTYPE html>\r\n<html><body>{}</body></html>\n",
+        "Bad gateway. ".repeat(10_000)
+    );
+
+    assert_eq!(
+        fail(502, &page),
+        Failure::Transient {
+            message: "HTTP 502: <!DOCTYPE html>…".to_string(),
+            retry_after: None
+        }
+    );
+}
+
+#[test]
+fn a_non_json_line_is_cut_to_200_characters() {
+    let line = "é".repeat(201);
+
+    assert_eq!(
+        fail(404, &line),
+        Failure::Fatal(format!("HTTP 404: {}…", "é".repeat(200)))
+    );
+    assert_eq!(
+        fail(404, &line[..400]),
+        Failure::Fatal(format!("HTTP 404: {}", "é".repeat(200)))
+    );
+}
+
+#[test]
 fn rate_limit_versus_unavailable() {
     assert_eq!(fail(429, "{}"), Failure::RateLimited { retry_after: None });
     assert_eq!(
