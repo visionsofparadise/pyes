@@ -254,21 +254,13 @@ fn gap_after_a_rate_limit_of(name: &str, value: &str) -> Duration {
     });
     let outcome = outcome_of(
         &["Is this a?"],
-        b"a
-b
-",
+        b"a\nb\n",
         folder.environment_of(Some("test"), &mock),
     );
 
     assert_eq!(
         (text_of(&outcome.stdout), outcome.code),
-        (
-            "0.5	a
-0.5	b
-"
-            .to_string(),
-            SUCCESS
-        )
+        ("0.5\ta\n0.5\tb\n".to_string(), SUCCESS)
     );
 
     let arrivals = arrivals.lock().unwrap();
