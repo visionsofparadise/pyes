@@ -66,7 +66,7 @@ impl Streams<'_> {
 }
 
 fn set_value_of(value: Option<&str>) -> Option<&str> {
-    value.filter(|value| !value.trim().is_empty())
+    value.map(str::trim).filter(|value| !value.is_empty())
 }
 
 fn is_closed(error: &std::io::Error) -> bool {

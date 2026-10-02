@@ -22,6 +22,14 @@ fn a_blank_base_url_counts_as_unset() {
 }
 
 #[test]
+fn a_base_url_is_used_trimmed() {
+    assert_eq!(
+        base_url_of(&with_base_url(Some(" http://127.0.0.1:1\n"))),
+        Ok("http://127.0.0.1:1")
+    );
+}
+
+#[test]
 fn a_base_url_that_is_not_unicode_raises() {
     let mut environment = with_base_url(None);
 
