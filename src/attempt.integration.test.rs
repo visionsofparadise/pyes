@@ -36,6 +36,34 @@ fn a_trailing_slash_on_the_base_url_is_trimmed() {
 }
 
 #[test]
+fn the_body_is_sent_as_json() {
+    let mock = MockJev::start(|_| {
+        (
+            200,
+            Vec::new(),
+            r#"{"answers":{"L0":{"type":"noul","noul":0.5}}}"#.to_string(),
+        )
+    });
+
+    assert_eq!(outcome_of(mock.url.clone()), Ok((vec![0.5], 0)));
+    assert_eq!(
+        mock.requests.lock().unwrap()[0].header_of("content-type"),
+        Some("application/json")
+    );
+}
+
+#[test]
+fn a_200_whose_whole_body_is_unreadable_is_fatal() {
+    let mock = MockJev::start(|_| (200, Vec::new(), "<html>busy</html>".to_string()));
+    let outcome = outcome_of(mock.url.clone());
+
+    assert!(
+        matches!(&outcome, Err(Failure::Fatal(message)) if message.starts_with("unreadable response: ")),
+        "{outcome:?}"
+    );
+}
+
+#[test]
 fn a_200_whose_body_fails_to_arrive_is_transient() {
     let mock = MockJev::start_raw(|_| {
         b"HTTP/1.1 200 OK\r\nContent-Length: 100\r\nConnection: close\r\n\r\n{\"answers\"".to_vec()
