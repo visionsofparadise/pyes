@@ -56,7 +56,6 @@ fn present(value: Option<&str>) -> Option<&str> {
 
 fn closed(error: &std::io::Error) -> bool {
     error.kind() == std::io::ErrorKind::BrokenPipe
-        || (cfg!(windows) && error.raw_os_error() == Some(232))
 }
 
 fn base_url_of(environment: &Environment) -> &str {

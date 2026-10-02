@@ -381,13 +381,11 @@ fn auth_strips_a_byte_order_mark() {
     );
 }
 
-struct ClosedPipe {
-    error_of: fn() -> std::io::Error,
-}
+struct ClosedPipe;
 
 impl Write for ClosedPipe {
     fn write(&mut self, _: &[u8]) -> std::io::Result<usize> {
-        Err((self.error_of)())
+        Err(std::io::Error::from(std::io::ErrorKind::BrokenPipe))
     }
 
     fn flush(&mut self) -> std::io::Result<()> {
@@ -399,23 +397,14 @@ impl Write for ClosedPipe {
 fn a_closed_stdout_ends_the_run_quietly() {
     let folder = Folder::new();
     let mock = MockJev::start(half);
-    let mut errors: Vec<fn() -> std::io::Error> =
-        vec![|| std::io::Error::from(std::io::ErrorKind::BrokenPipe)];
+    let (_, stderr, code) = outcome_into(
+        &["Is this a?"],
+        b"a\n",
+        folder.environment_of(Some("test"), &mock),
+        ClosedPipe,
+    );
 
-    if cfg!(windows) {
-        errors.push(|| std::io::Error::from_raw_os_error(232));
-    }
-
-    for error_of in errors {
-        let (_, stderr, code) = outcome_into(
-            &["Is this a?"],
-            b"a\n",
-            folder.environment_of(Some("test"), &mock),
-            ClosedPipe { error_of },
-        );
-
-        assert_eq!((stderr, code), (String::new(), SUCCESS));
-    }
+    assert_eq!((stderr, code), (String::new(), SUCCESS));
 }
 
 fn pathless_of(api_key: Option<&str>, mock: &MockJev) -> Environment {
