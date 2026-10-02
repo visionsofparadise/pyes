@@ -65,21 +65,21 @@ impl Streams<'_> {
     }
 }
 
-fn present(value: Option<&str>) -> Option<&str> {
+fn set_value_of(value: Option<&str>) -> Option<&str> {
     value.filter(|value| !value.trim().is_empty())
 }
 
-fn closed(error: &std::io::Error) -> bool {
+fn is_closed(error: &std::io::Error) -> bool {
     error.kind() == std::io::ErrorKind::BrokenPipe
 }
 
 fn base_url_of(environment: &Environment) -> Result<&str, String> {
     environment.require_unicode("TYPESAFE_BASE_URL")?;
 
-    Ok(present(environment.base_url.as_deref()).unwrap_or(BASE_URL))
+    Ok(set_value_of(environment.base_url.as_deref()).unwrap_or(BASE_URL))
 }
 
-fn key_path_from(environment: &Environment) -> Result<std::path::PathBuf, String> {
+fn key_file_of(environment: &Environment) -> Result<std::path::PathBuf, String> {
     key_path_of(
         cfg!(windows),
         environment.appdata.as_deref(),
@@ -89,7 +89,7 @@ fn key_path_from(environment: &Environment) -> Result<std::path::PathBuf, String
     )
 }
 
-fn stored_key_path_from(environment: &Environment) -> Result<Option<std::path::PathBuf>, String> {
+fn stored_key_file_of(environment: &Environment) -> Result<Option<std::path::PathBuf>, String> {
     stored_key_path_of(
         cfg!(windows),
         environment.appdata.as_deref(),
@@ -114,7 +114,7 @@ fn authenticate(environment: &Environment, streams: &mut Streams) -> Result<(), 
     }
 
     store_key(
-        &key_path_from(environment)?,
+        &key_file_of(environment)?,
         &header_key_of(key, "the key on stdin")?,
     )
 }
@@ -146,7 +146,7 @@ fn score(
 
     let stored = match environment.api_key.as_deref().map(bare_key_of) {
         Some(key) if !key.is_empty() => None,
-        _ => match stored_key_path_from(environment)? {
+        _ => match stored_key_file_of(environment)? {
             Some(path) => read_stored_key(&path)?.map(|text| (path, text)),
             None => None,
         },
@@ -164,7 +164,7 @@ fn score(
     match write_output(&records, &columns, terminator_of(&separator), &mut stdout)
         .and_then(|()| stdout.flush())
     {
-        Err(error) if !closed(&error) => Err(format!("stdout: {error}")),
+        Err(error) if !is_closed(&error) => Err(format!("stdout: {error}")),
         _ => Ok(()),
     }
 }
