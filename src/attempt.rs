@@ -18,6 +18,7 @@ impl Client {
         let agent = ureq::Agent::config_builder()
             .http_status_as_error(false)
             .timeout_global(Some(TIMEOUT))
+            .proxy(None)
             .build()
             .into();
 

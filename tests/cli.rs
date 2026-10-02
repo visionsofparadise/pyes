@@ -24,7 +24,22 @@ mod integration {
                 json!({ "answers": answers, "usage": { "input_tokens": 1 } }).to_string(),
             )
         });
-        let mut child = Command::new(env!("CARGO_BIN_EXE_pyes"))
+        let mut command = Command::new(env!("CARGO_BIN_EXE_pyes"));
+
+        for proxy in [
+            "ALL_PROXY",
+            "all_proxy",
+            "HTTPS_PROXY",
+            "https_proxy",
+            "HTTP_PROXY",
+            "http_proxy",
+        ] {
+            command.env(proxy, "http://127.0.0.1:1");
+        }
+
+        let mut child = command
+            .env_remove("NO_PROXY")
+            .env_remove("no_proxy")
             .args(["Is this a?", "Is this b?", "Is this c?"])
             .env("TYPESAFE_BASE_URL", &mock.url)
             .env("TYPESAFE_API_KEY", "test")
