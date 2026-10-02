@@ -361,6 +361,23 @@ fn a_transient_retry_waits_for_its_retry_after() {
 }
 
 #[test]
+fn transient_retries_without_a_retry_after_climb_the_backoff() {
+    let bare = || Failure::Transient {
+        message: "HTTP 503: busy".to_string(),
+        retry_after: None,
+    };
+    let run = run_of(
+        1,
+        1,
+        vec![vec![0..1]],
+        script_of(vec![Err(bare()), Err(bare())]),
+    );
+
+    assert_eq!(run.result, Ok(vec![vec![0.0]]));
+    assert!(run.calls[2].at - run.calls[1].at >= Duration::from_millis(750));
+}
+
+#[test]
 fn a_rate_limit_between_transients_keeps_the_retry_count() {
     let mut outcomes = vec![Err(transient()), Err(rate_limited(1))];
 
