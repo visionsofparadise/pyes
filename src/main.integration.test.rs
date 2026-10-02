@@ -500,6 +500,25 @@ fn nul_output_is_flushed_through_its_last_record() {
     );
 }
 
+#[cfg(unix)]
+#[test]
+fn auth_tightens_an_existing_key_file_to_0600() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let folder = Folder::new();
+    let mock = MockJev::start(even_odds_of);
+    let path = folder.path.join("pyes").join("key");
+
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(&path, "old").unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+
+    let outcome = outcome_of(&["auth"], b"stored\n", folder.environment_of(None, &mock));
+    let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+
+    assert_eq!((outcome.code, mode), (SUCCESS, 0o600));
+}
+
 #[test]
 fn a_second_auth_replaces_a_longer_key_whole() {
     let folder = Folder::new();
