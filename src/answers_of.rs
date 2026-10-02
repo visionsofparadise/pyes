@@ -46,7 +46,7 @@ fn duration_of(seconds: f64) -> Option<Duration> {
 fn retry_after_of(
     retry_after_ms: Option<&str>,
     retry_after: Option<&str>,
-    now: SystemTime,
+    received_at: SystemTime,
 ) -> Option<Duration> {
     let milliseconds = retry_after_ms
         .and_then(|text| text.trim().parse::<f64>().ok())
@@ -63,7 +63,11 @@ fn retry_after_of(
         Err(_) => {
             let date = httpdate::parse_http_date(text).ok()?;
 
-            duration_of(date.duration_since(now).unwrap_or_default().as_secs_f64())
+            duration_of(
+                date.duration_since(received_at)
+                    .unwrap_or_default()
+                    .as_secs_f64(),
+            )
         }
     }
 }
@@ -106,10 +110,10 @@ pub fn failure_of(
     body: &str,
     retry_after_ms: Option<&str>,
     retry_after: Option<&str>,
-    now: SystemTime,
+    received_at: SystemTime,
 ) -> Failure {
     let parsed: Value = serde_json::from_str(body).unwrap_or(Value::Null);
-    let retry_after = retry_after_of(retry_after_ms, retry_after, now);
+    let retry_after = retry_after_of(retry_after_ms, retry_after, received_at);
     let described = || format!("HTTP {status}: {}", message_of(&parsed, body));
 
     match status {

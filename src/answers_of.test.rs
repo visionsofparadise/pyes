@@ -134,7 +134,7 @@ fn retry_after_ms_wins_over_seconds() {
 
 #[test]
 fn retry_after_resolves_an_http_date_against_now() {
-    let now = httpdate::parse_http_date("Wed, 21 Oct 2015 07:28:00 GMT").unwrap();
+    let received_at = httpdate::parse_http_date("Wed, 21 Oct 2015 07:28:00 GMT").unwrap();
 
     assert_eq!(
         failure_of(
@@ -142,7 +142,7 @@ fn retry_after_resolves_an_http_date_against_now() {
             r#"{"detail":"busy"}"#,
             None,
             Some("Wed, 21 Oct 2015 07:28:30 GMT"),
-            now
+            received_at
         ),
         Failure::Transient {
             message: "HTTP 503: busy".to_string(),
@@ -207,10 +207,16 @@ fn an_unparseable_or_negative_retry_after_ms_defers_to_seconds() {
 
 #[test]
 fn a_past_http_date_retries_at_once() {
-    let now = httpdate::parse_http_date("Wed, 21 Oct 2015 07:28:00 GMT").unwrap();
+    let received_at = httpdate::parse_http_date("Wed, 21 Oct 2015 07:28:00 GMT").unwrap();
 
     assert_eq!(
-        failure_of(429, "{}", None, Some("Wed, 21 Oct 2015 07:27:30 GMT"), now),
+        failure_of(
+            429,
+            "{}",
+            None,
+            Some("Wed, 21 Oct 2015 07:27:30 GMT"),
+            received_at
+        ),
         Failure::RateLimited {
             retry_after: Some(Duration::ZERO)
         }
