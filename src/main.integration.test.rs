@@ -498,17 +498,26 @@ fn a_blank_environment_key_falls_back_to_the_stored_key() {
     let folder = Folder::new();
     let mock = MockJev::start(half);
     let stored = outcome_of(&["auth"], b"stored\n", folder.environment_of(None, &mock));
-    let scored = outcome_of(
-        &["Is this a?"],
-        b"a\n",
-        folder.environment_of(Some("  "), &mock),
-    );
 
-    assert_eq!((stored.code, scored.code), (SUCCESS, SUCCESS));
-    assert_eq!(
-        mock.requests.lock().unwrap()[0].header_of("authorization"),
-        Some("Bearer stored")
-    );
+    assert_eq!(stored.code, SUCCESS);
+
+    for blank in ["  ", "\u{feff}", "\u{feff} \n"] {
+        let scored = outcome_of(
+            &["Is this a?"],
+            b"a\n",
+            folder.environment_of(Some(blank), &mock),
+        );
+
+        assert_eq!((scored.stderr, scored.code), (String::new(), SUCCESS));
+    }
+
+    let requests = mock.requests.lock().unwrap();
+
+    assert_eq!(requests.len(), 3);
+
+    for request in requests.iter() {
+        assert_eq!(request.header_of("authorization"), Some("Bearer stored"));
+    }
 }
 
 #[test]

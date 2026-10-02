@@ -128,9 +128,9 @@ fn score(
 
     environment.require_unicode("TYPESAFE_API_KEY")?;
 
-    let stored = match present(environment.api_key.as_deref()) {
-        Some(_) => None,
-        None => match key_path_from(environment) {
+    let stored = match environment.api_key.as_deref().map(bare_key_of) {
+        Some(key) if !key.is_empty() => None,
+        _ => match key_path_from(environment) {
             Ok(path) => read_stored_key(&path)?,
             Err(_) => None,
         },
