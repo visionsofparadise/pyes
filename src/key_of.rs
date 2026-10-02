@@ -24,8 +24,13 @@ fn windows_absolute(path: &str) -> bool {
 fn folder_of<'a>(
     name: &str,
     value: Option<&'a str>,
+    not_unicode: &[&str],
     absolute: fn(&str) -> bool,
 ) -> Result<&'a str, String> {
+    if not_unicode.contains(&name) {
+        return Err(format!("{name} is not valid Unicode"));
+    }
+
     match present(value) {
         None => Err(format!("{name} is not set")),
         Some(path) if !absolute(path) => Err(format!("{name} is relative")),
@@ -38,13 +43,24 @@ pub fn key_path_of(
     appdata: Option<&str>,
     xdg_config_home: Option<&str>,
     home: Option<&str>,
+    not_unicode: &[&str],
 ) -> Result<PathBuf, String> {
     let folder = if windows {
-        PathBuf::from(folder_of("APPDATA", appdata, windows_absolute)?)
+        PathBuf::from(folder_of(
+            "APPDATA",
+            appdata,
+            not_unicode,
+            windows_absolute,
+        )?)
     } else {
         match (
-            folder_of("XDG_CONFIG_HOME", xdg_config_home, unix_absolute),
-            folder_of("HOME", home, unix_absolute),
+            folder_of(
+                "XDG_CONFIG_HOME",
+                xdg_config_home,
+                not_unicode,
+                unix_absolute,
+            ),
+            folder_of("HOME", home, not_unicode, unix_absolute),
         ) {
             (Ok(xdg_config_home), _) => PathBuf::from(xdg_config_home),
             (_, Ok(home)) => PathBuf::from(home).join(".config"),

@@ -35,6 +35,7 @@ impl Folder {
             appdata: folder.clone(),
             xdg_config_home: folder.clone(),
             home: folder,
+            not_unicode: Vec::new(),
         }
     }
 }
@@ -414,6 +415,7 @@ fn pathless_of(api_key: Option<&str>, mock: &MockJev) -> Environment {
         appdata: None,
         xdg_config_home: None,
         home: None,
+        not_unicode: Vec::new(),
     }
 }
 
@@ -507,4 +509,23 @@ fn a_blank_environment_key_falls_back_to_the_stored_key() {
         mock.requests.lock().unwrap()[0].header_of("authorization"),
         Some("Bearer stored")
     );
+}
+
+#[test]
+fn a_key_variable_that_is_not_unicode_raises_instead_of_falling_through() {
+    let folder = Folder::new();
+    let mock = MockJev::start(half);
+    let stored = outcome_of(&["auth"], b"stored", folder.environment_of(None, &mock));
+    let mut environment = folder.environment_of(None, &mock);
+
+    environment.not_unicode.push("TYPESAFE_API_KEY");
+
+    let scored = outcome_of(&["Is this a?"], b"a", environment);
+
+    assert_eq!(stored.code, SUCCESS);
+    assert_eq!(
+        (scored.stderr.as_str(), scored.code),
+        ("pyes: TYPESAFE_API_KEY is not valid Unicode\n", FAILURE)
+    );
+    assert_eq!(mock.requests.lock().unwrap().len(), 0);
 }

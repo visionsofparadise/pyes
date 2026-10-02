@@ -11,6 +11,7 @@ mod score_records;
 mod split_records;
 mod write_output;
 
+use std::env::VarError;
 use std::ffi::OsString;
 use std::io::{BufWriter, Read, Write};
 use std::panic::{catch_unwind, AssertUnwindSafe};
@@ -34,6 +35,17 @@ pub struct Environment {
     pub appdata: Option<String>,
     pub xdg_config_home: Option<String>,
     pub home: Option<String>,
+    pub not_unicode: Vec<&'static str>,
+}
+
+impl Environment {
+    fn require_unicode(&self, name: &str) -> Result<(), String> {
+        if self.not_unicode.contains(&name) {
+            return Err(format!("{name} is not valid Unicode"));
+        }
+
+        Ok(())
+    }
 }
 
 pub struct Streams<'a> {
@@ -58,8 +70,10 @@ fn closed(error: &std::io::Error) -> bool {
     error.kind() == std::io::ErrorKind::BrokenPipe
 }
 
-fn base_url_of(environment: &Environment) -> &str {
-    present(environment.base_url.as_deref()).unwrap_or(BASE_URL)
+fn base_url_of(environment: &Environment) -> Result<&str, String> {
+    environment.require_unicode("TYPESAFE_BASE_URL")?;
+
+    Ok(present(environment.base_url.as_deref()).unwrap_or(BASE_URL))
 }
 
 fn key_path_from(environment: &Environment) -> Result<std::path::PathBuf, String> {
@@ -68,6 +82,7 @@ fn key_path_from(environment: &Environment) -> Result<std::path::PathBuf, String
         environment.appdata.as_deref(),
         environment.xdg_config_home.as_deref(),
         environment.home.as_deref(),
+        &environment.not_unicode,
     )
 }
 
@@ -110,6 +125,9 @@ fn score(
         .iter()
         .map(|record| String::from_utf8_lossy(record).into_owned())
         .collect();
+
+    environment.require_unicode("TYPESAFE_API_KEY")?;
+
     let stored = match present(environment.api_key.as_deref()) {
         Some(_) => None,
         None => match key_path_from(environment) {
@@ -118,7 +136,7 @@ fn score(
         },
     };
     let key = key_of(environment.api_key.as_deref(), stored.as_deref())?;
-    let client = Client::new(base_url_of(environment).to_string(), key);
+    let client = Client::new(base_url_of(environment)?.to_string(), key);
     let columns = score_records(&client, &texts, &questions)?;
     let mut stdout = BufWriter::new(&mut *streams.stdout);
 
@@ -166,15 +184,35 @@ fn run(arguments: Vec<OsString>, environment: &Environment, streams: &mut Stream
     }
 }
 
-fn main() {
-    let variable_of = |name: &str| std::env::var(name).ok();
-    let environment = Environment {
-        api_key: variable_of("TYPESAFE_API_KEY"),
-        base_url: variable_of("TYPESAFE_BASE_URL"),
-        appdata: variable_of("APPDATA"),
-        xdg_config_home: variable_of("XDG_CONFIG_HOME"),
-        home: variable_of("HOME"),
+fn environment_of(variable_of: impl Fn(&str) -> Result<String, VarError>) -> Environment {
+    let mut not_unicode = Vec::new();
+    let mut value_of = |name: &'static str| match variable_of(name) {
+        Ok(value) => Some(value),
+        Err(VarError::NotPresent) => None,
+        Err(VarError::NotUnicode(_)) => {
+            not_unicode.push(name);
+
+            None
+        }
     };
+    let api_key = value_of("TYPESAFE_API_KEY");
+    let base_url = value_of("TYPESAFE_BASE_URL");
+    let appdata = value_of("APPDATA");
+    let xdg_config_home = value_of("XDG_CONFIG_HOME");
+    let home = value_of("HOME");
+
+    Environment {
+        api_key,
+        base_url,
+        appdata,
+        xdg_config_home,
+        home,
+        not_unicode,
+    }
+}
+
+fn main() {
+    let environment = environment_of(|name| std::env::var(name));
     let mut stdin = std::io::stdin().lock();
     let mut stdout = std::io::stdout().lock();
     let mut stderr = std::io::stderr();

@@ -27,11 +27,11 @@ fn no_key_names_both_sources() {
 #[test]
 fn windows_reads_appdata() {
     assert_eq!(
-        key_path_of(true, Some("C:/data"), Some("/xdg"), Some("/home")),
+        key_path_of(true, Some("C:/data"), Some("/xdg"), Some("/home"), &[]),
         Ok(Path::new("C:/data").join("pyes").join("key"))
     );
     assert_eq!(
-        key_path_of(true, None, Some("/xdg"), Some("/home")),
+        key_path_of(true, None, Some("/xdg"), Some("/home"), &[]),
         Err("APPDATA is not set".to_string())
     );
 }
@@ -39,7 +39,7 @@ fn windows_reads_appdata() {
 #[test]
 fn elsewhere_xdg_config_home_wins_over_home() {
     assert_eq!(
-        key_path_of(false, Some("C:/data"), Some("/xdg"), Some("/home")),
+        key_path_of(false, Some("C:/data"), Some("/xdg"), Some("/home"), &[]),
         Ok(Path::new("/xdg").join("pyes").join("key"))
     );
 }
@@ -47,11 +47,11 @@ fn elsewhere_xdg_config_home_wins_over_home() {
 #[test]
 fn elsewhere_home_config_is_the_fallback() {
     assert_eq!(
-        key_path_of(false, None, Some(""), Some("/home")),
+        key_path_of(false, None, Some(""), Some("/home"), &[]),
         Ok(Path::new("/home").join(".config").join("pyes").join("key"))
     );
     assert_eq!(
-        key_path_of(false, None, None, None),
+        key_path_of(false, None, None, None, &[]),
         Err("XDG_CONFIG_HOME is not set and HOME is not set".to_string())
     );
 }
@@ -78,7 +78,7 @@ fn a_key_outside_visible_ascii_is_refused() {
 #[test]
 fn elsewhere_a_relative_xdg_config_home_is_ignored() {
     assert_eq!(
-        key_path_of(false, None, Some("relative/xdg"), Some("/home")),
+        key_path_of(false, None, Some("relative/xdg"), Some("/home"), &[]),
         Ok(Path::new("/home").join(".config").join("pyes").join("key"))
     );
 }
@@ -87,14 +87,14 @@ fn elsewhere_a_relative_xdg_config_home_is_ignored() {
 fn windows_refuses_a_relative_appdata() {
     for appdata in ["data", r"C:data", r"\data"] {
         assert_eq!(
-            key_path_of(true, Some(appdata), Some("/xdg"), Some("/home")),
+            key_path_of(true, Some(appdata), Some("/xdg"), Some("/home"), &[]),
             Err("APPDATA is relative".to_string())
         );
     }
 
     for appdata in [r"C:\data", r"\\server\share"] {
         assert_eq!(
-            key_path_of(true, Some(appdata), None, None),
+            key_path_of(true, Some(appdata), None, None, &[]),
             Ok(Path::new(appdata).join("pyes").join("key"))
         );
     }
@@ -103,15 +103,37 @@ fn windows_refuses_a_relative_appdata() {
 #[test]
 fn elsewhere_a_relative_home_counts_as_unset_and_the_error_names_each_cause() {
     assert_eq!(
-        key_path_of(false, None, Some("relative/xdg"), Some("relative/home")),
+        key_path_of(
+            false,
+            None,
+            Some("relative/xdg"),
+            Some("relative/home"),
+            &[]
+        ),
         Err("XDG_CONFIG_HOME is relative and HOME is relative".to_string())
     );
     assert_eq!(
-        key_path_of(false, None, Some("relative/xdg"), None),
+        key_path_of(false, None, Some("relative/xdg"), None, &[]),
         Err("XDG_CONFIG_HOME is relative and HOME is not set".to_string())
     );
     assert_eq!(
-        key_path_of(false, None, None, Some("home")),
+        key_path_of(false, None, None, Some("home"), &[]),
         Err("XDG_CONFIG_HOME is not set and HOME is relative".to_string())
+    );
+}
+
+#[test]
+fn a_variable_that_is_not_unicode_is_named_as_such() {
+    assert_eq!(
+        key_path_of(true, None, None, None, &["APPDATA"]),
+        Err("APPDATA is not valid Unicode".to_string())
+    );
+    assert_eq!(
+        key_path_of(false, None, None, None, &["XDG_CONFIG_HOME", "HOME"]),
+        Err("XDG_CONFIG_HOME is not valid Unicode and HOME is not valid Unicode".to_string())
+    );
+    assert_eq!(
+        key_path_of(false, None, None, Some("/home"), &["XDG_CONFIG_HOME"]),
+        Ok(Path::new("/home").join(".config").join("pyes").join("key"))
     );
 }
