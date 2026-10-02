@@ -120,7 +120,7 @@ fn ok_of(body: String) -> (u16, Vec<(String, String)>, String) {
     (200, Vec::new(), body)
 }
 
-fn half(request: &Request) -> (u16, Vec<(String, String)>, String) {
+fn even_odds_of(request: &Request) -> (u16, Vec<(String, String)>, String) {
     ok_of(answered_of(&request.body, |_, _| 0.5))
 }
 
@@ -184,7 +184,7 @@ fn scores_two_questions_over_three_lines_in_input_order() {
 #[test]
 fn nul_records_round_trip_with_nul_terminators() {
     let folder = Folder::new();
-    let mock = MockJev::start(half);
+    let mock = MockJev::start(even_odds_of);
     let outcome = outcome_of(
         &["-z", "Is this a?"],
         b"a\nb\0c\0",
@@ -251,7 +251,7 @@ fn gap_after_a_rate_limit_of(name: &str, value: &str) -> Duration {
             );
         }
 
-        half(request)
+        even_odds_of(request)
     });
     let outcome = outcome_of(
         &["Is this a?"],
@@ -310,7 +310,7 @@ fn an_unauthorized_key_exits_two_with_empty_stdout() {
 #[test]
 fn auth_stores_the_key_and_the_environment_key_wins_over_it() {
     let folder = Folder::new();
-    let mock = MockJev::start(half);
+    let mock = MockJev::start(even_odds_of);
     let stored = outcome_of(&["auth"], b"stored\n", folder.environment_of(None, &mock));
 
     assert_eq!((stored.code, stored.stderr), (SUCCESS, String::new()));
@@ -343,7 +343,7 @@ fn auth_stores_the_key_and_the_environment_key_wins_over_it() {
 #[test]
 fn a_key_a_header_cannot_carry_is_refused_before_any_request() {
     let folder = Folder::new();
-    let mock = MockJev::start(half);
+    let mock = MockJev::start(even_odds_of);
     let path = folder.path.join("pyes").join("key");
     let stored = outcome_of(
         &["auth"],
@@ -394,7 +394,7 @@ fn a_key_a_header_cannot_carry_is_refused_before_any_request() {
 #[test]
 fn auth_strips_a_byte_order_mark() {
     let folder = Folder::new();
-    let mock = MockJev::start(half);
+    let mock = MockJev::start(even_odds_of);
     let stored = outcome_of(
         &["auth"],
         "\u{feff}stored\r\n".as_bytes(),
@@ -423,7 +423,7 @@ impl Write for ClosedPipe {
 #[test]
 fn a_closed_stdout_ends_the_run_quietly() {
     let folder = Folder::new();
-    let mock = MockJev::start(half);
+    let mock = MockJev::start(even_odds_of);
     let (_, stderr, code) = outcome_into(
         &["Is this a?"],
         b"a\n",
@@ -449,7 +449,7 @@ impl Write for FullDisk {
 #[test]
 fn any_other_stdout_error_raises() {
     let folder = Folder::new();
-    let mock = MockJev::start(half);
+    let mock = MockJev::start(even_odds_of);
     let (_, stderr, code) = outcome_into(
         &["Is this a?"],
         b"a\n",
@@ -466,7 +466,7 @@ fn any_other_stdout_error_raises() {
 #[test]
 fn a_second_auth_replaces_a_longer_key_whole() {
     let folder = Folder::new();
-    let mock = MockJev::start(half);
+    let mock = MockJev::start(even_odds_of);
     let first = outcome_of(
         &["auth"],
         b"a-long-first-key\n",
@@ -484,7 +484,7 @@ fn a_second_auth_replaces_a_longer_key_whole() {
 #[test]
 fn a_set_key_skips_an_unreadable_key_file() {
     let folder = Folder::new();
-    let mock = MockJev::start(half);
+    let mock = MockJev::start(even_odds_of);
 
     std::fs::create_dir_all(folder.path.join("pyes").join("key")).unwrap();
 
@@ -517,7 +517,7 @@ fn pathless_of(api_key: Option<&str>, mock: &MockJev) -> Environment {
 
 #[test]
 fn no_key_folder_and_no_key_reports_the_missing_key() {
-    let mock = MockJev::start(half);
+    let mock = MockJev::start(even_odds_of);
     let outcome = outcome_of(&["Is this a?"], b"a\n", pathless_of(None, &mock));
 
     assert_eq!(
@@ -531,7 +531,7 @@ fn no_key_folder_and_no_key_reports_the_missing_key() {
 
 #[test]
 fn a_set_key_needs_no_key_folder() {
-    let mock = MockJev::start(half);
+    let mock = MockJev::start(even_odds_of);
     let outcome = outcome_of(&["Is this a?"], b"a\n", pathless_of(Some("test"), &mock));
 
     assert_eq!(
@@ -550,7 +550,7 @@ fn not_unicode_folders_of(api_key: Option<&str>, mock: &MockJev) -> Environment 
 
 #[test]
 fn a_key_folder_that_is_not_unicode_raises_when_the_key_file_is_consulted() {
-    let mock = MockJev::start(half);
+    let mock = MockJev::start(even_odds_of);
     let outcome = outcome_of(
         &["Is this a?"],
         b"a
@@ -573,7 +573,7 @@ fn a_key_folder_that_is_not_unicode_raises_when_the_key_file_is_consulted() {
 
 #[test]
 fn a_set_key_skips_a_key_folder_that_is_not_unicode() {
-    let mock = MockJev::start(half);
+    let mock = MockJev::start(even_odds_of);
     let outcome = outcome_of(
         &["Is this a?"],
         b"a
@@ -595,7 +595,7 @@ fn a_set_key_skips_a_key_folder_that_is_not_unicode() {
 
 #[test]
 fn empty_stdin_exits_zero_without_a_key_or_a_request() {
-    let mock = MockJev::start(half);
+    let mock = MockJev::start(even_odds_of);
     let outcome = outcome_of(&["Is this a?"], b"", pathless_of(None, &mock));
 
     assert_eq!(
@@ -608,7 +608,7 @@ fn empty_stdin_exits_zero_without_a_key_or_a_request() {
 #[test]
 fn non_utf8_records_round_trip_byte_exact() {
     let folder = Folder::new();
-    let mock = MockJev::start(half);
+    let mock = MockJev::start(even_odds_of);
     let outcome = outcome_of(
         &["Is this a?"],
         b"a\xff\n\xfe\xfdb\n",
@@ -628,7 +628,7 @@ fn non_utf8_records_round_trip_byte_exact() {
 #[test]
 fn an_unreadable_key_file_raises() {
     let folder = Folder::new();
-    let mock = MockJev::start(half);
+    let mock = MockJev::start(even_odds_of);
     let path = folder.path.join("pyes").join("key");
 
     std::fs::create_dir_all(&path).unwrap();
@@ -645,7 +645,7 @@ fn an_unreadable_key_file_raises() {
 #[test]
 fn a_blank_environment_key_falls_back_to_the_stored_key() {
     let folder = Folder::new();
-    let mock = MockJev::start(half);
+    let mock = MockJev::start(even_odds_of);
     let stored = outcome_of(&["auth"], b"stored\n", folder.environment_of(None, &mock));
 
     assert_eq!(stored.code, SUCCESS);
@@ -672,7 +672,7 @@ fn a_blank_environment_key_falls_back_to_the_stored_key() {
 #[test]
 fn a_key_variable_that_is_not_unicode_raises_instead_of_falling_through() {
     let folder = Folder::new();
-    let mock = MockJev::start(half);
+    let mock = MockJev::start(even_odds_of);
     let stored = outcome_of(&["auth"], b"stored", folder.environment_of(None, &mock));
     let mut environment = folder.environment_of(None, &mock);
 
