@@ -810,6 +810,17 @@ fn queued_of(state: &State) -> Vec<(Range<usize>, u32)> {
 }
 
 #[test]
+fn the_first_transient_retry_backs_off_from_500_ms() {
+    let failed_at = Instant::now();
+    let due_at = due_at_of(&job_of(0..1, 0), None, failed_at);
+
+    assert!(
+        due_at >= failed_at + Duration::from_millis(375)
+            && due_at <= failed_at + Duration::from_millis(500)
+    );
+}
+
+#[test]
 fn the_first_bare_rate_limit_backs_off_from_500_ms() {
     let mut state = state_of();
 

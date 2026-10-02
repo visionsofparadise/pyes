@@ -188,6 +188,10 @@ impl Drop for InFlight<'_> {
     }
 }
 
+fn due_at_of(job: &Job, retry_after: Option<Duration>, failed_at: Instant) -> Instant {
+    failed_at + delay_of(job.retries, retry_after)
+}
+
 fn run_job(shared: &Shared, send: &Send, records: &[String], questions: &[String], mut job: Job) {
     let _in_flight = InFlight { shared };
     let body = request_of(&records[job.range.clone()], &questions[job.question]);
@@ -226,7 +230,7 @@ fn run_job(shared: &Shared, send: &Send, records: &[String], questions: &[String
                     return;
                 }
 
-                let due_at = Instant::now() + delay_of(job.retries, retry_after);
+                let due_at = due_at_of(&job, retry_after, Instant::now());
 
                 loop {
                     if state.fatal.is_some() {
