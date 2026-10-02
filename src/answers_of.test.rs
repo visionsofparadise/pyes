@@ -1,9 +1,9 @@
 use super::*;
 
-const NOW: SystemTime = SystemTime::UNIX_EPOCH;
+const RECEIVED_AT: SystemTime = SystemTime::UNIX_EPOCH;
 
 fn fail(status: u16, body: &str) -> Failure {
-    failure_of(status, body, None, None, NOW)
+    failure_of(status, body, None, None, RECEIVED_AT)
 }
 
 #[test]
@@ -149,13 +149,13 @@ fn rate_limit_versus_unavailable() {
 #[test]
 fn retry_after_ms_wins_over_seconds() {
     assert_eq!(
-        failure_of(429, "{}", Some("250"), Some("5"), NOW),
+        failure_of(429, "{}", Some("250"), Some("5"), RECEIVED_AT),
         Failure::RateLimited {
             retry_after: Some(Duration::from_millis(250))
         }
     );
     assert_eq!(
-        failure_of(429, "{}", None, Some("5"), NOW),
+        failure_of(429, "{}", None, Some("5"), RECEIVED_AT),
         Failure::RateLimited {
             retry_after: Some(Duration::from_secs(5))
         }
@@ -184,15 +184,15 @@ fn retry_after_resolves_an_http_date_against_now() {
 #[test]
 fn retry_after_over_sixty_seconds_is_dropped() {
     assert_eq!(
-        failure_of(429, "{}", None, Some("61"), NOW),
+        failure_of(429, "{}", None, Some("61"), RECEIVED_AT),
         Failure::RateLimited { retry_after: None }
     );
     assert_eq!(
-        failure_of(429, "{}", Some("60001"), None, NOW),
+        failure_of(429, "{}", Some("60001"), None, RECEIVED_AT),
         Failure::RateLimited { retry_after: None }
     );
     assert_eq!(
-        failure_of(429, "{}", Some("60000"), None, NOW),
+        failure_of(429, "{}", Some("60000"), None, RECEIVED_AT),
         Failure::RateLimited {
             retry_after: Some(Duration::from_secs(60))
         }
@@ -202,11 +202,11 @@ fn retry_after_over_sixty_seconds_is_dropped() {
 #[test]
 fn huge_values_are_dropped_without_panicking() {
     assert_eq!(
-        failure_of(429, "{}", None, Some("1e20"), NOW),
+        failure_of(429, "{}", None, Some("1e20"), RECEIVED_AT),
         Failure::RateLimited { retry_after: None }
     );
     assert_eq!(
-        failure_of(429, "{}", Some("1e23"), None, NOW),
+        failure_of(429, "{}", Some("1e23"), None, RECEIVED_AT),
         Failure::RateLimited { retry_after: None }
     );
 }
@@ -214,7 +214,7 @@ fn huge_values_are_dropped_without_panicking() {
 #[test]
 fn an_over_limit_retry_after_ms_does_not_fall_through_to_seconds() {
     assert_eq!(
-        failure_of(429, "{}", Some("70000"), Some("5"), NOW),
+        failure_of(429, "{}", Some("70000"), Some("5"), RECEIVED_AT),
         Failure::RateLimited { retry_after: None }
     );
 }
@@ -222,13 +222,13 @@ fn an_over_limit_retry_after_ms_does_not_fall_through_to_seconds() {
 #[test]
 fn an_unparseable_or_negative_retry_after_ms_defers_to_seconds() {
     assert_eq!(
-        failure_of(429, "{}", Some("soon"), Some("5"), NOW),
+        failure_of(429, "{}", Some("soon"), Some("5"), RECEIVED_AT),
         Failure::RateLimited {
             retry_after: Some(Duration::from_secs(5))
         }
     );
     assert_eq!(
-        failure_of(429, "{}", Some("-1"), Some("5"), NOW),
+        failure_of(429, "{}", Some("-1"), Some("5"), RECEIVED_AT),
         Failure::RateLimited {
             retry_after: Some(Duration::from_secs(5))
         }
@@ -262,13 +262,13 @@ fn the_status_range_ends_at_599() {
 #[test]
 fn header_values_parse_around_whitespace() {
     assert_eq!(
-        failure_of(429, "{}", Some(" 250 "), None, NOW),
+        failure_of(429, "{}", Some(" 250 "), None, RECEIVED_AT),
         Failure::RateLimited {
             retry_after: Some(Duration::from_millis(250))
         }
     );
     assert_eq!(
-        failure_of(429, "{}", None, Some(" 5 "), NOW),
+        failure_of(429, "{}", None, Some(" 5 "), RECEIVED_AT),
         Failure::RateLimited {
             retry_after: Some(Duration::from_secs(5))
         }
@@ -279,7 +279,7 @@ fn header_values_parse_around_whitespace() {
             "{}",
             None,
             Some(" Thu, 01 Jan 1970 00:00:30 GMT "),
-            NOW
+            RECEIVED_AT
         ),
         Failure::RateLimited {
             retry_after: Some(Duration::from_secs(30))
