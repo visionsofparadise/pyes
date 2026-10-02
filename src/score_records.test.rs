@@ -1,4 +1,5 @@
 use super::*;
+use std::collections::HashSet;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{mpsc, Arc};
 
@@ -60,12 +61,88 @@ fn rate_limited(milliseconds: u64) -> Failure {
     }
 }
 
+struct Spawned {
+    threads: usize,
+}
+
+impl Spawner for Spawned {
+    fn spawn<'scope, 'env>(
+        &mut self,
+        scope: &'scope Scope<'scope, 'env>,
+        task: Task<'scope>,
+    ) -> io::Result<()> {
+        if self.threads == 0 {
+            task();
+
+            return Ok(());
+        }
+
+        self.threads -= 1;
+
+        Threads.spawn(scope, task)
+    }
+}
+
+struct Refusing {
+    threads: usize,
+    gate: Gate,
+}
+
+impl Spawner for Refusing {
+    fn spawn<'scope, 'env>(
+        &mut self,
+        scope: &'scope Scope<'scope, 'env>,
+        task: Task<'scope>,
+    ) -> io::Result<()> {
+        if self.threads > 0 {
+            self.threads -= 1;
+
+            return Threads.spawn(scope, task);
+        }
+
+        self.gate.wait();
+
+        Err(io::Error::other("no threads left"))
+    }
+}
+
+#[derive(Clone, Default)]
+struct Gate(Arc<(Mutex<bool>, Condvar)>);
+
+impl Gate {
+    fn open(&self) {
+        let (opened, changed) = &*self.0;
+
+        *opened.lock().unwrap_or_else(PoisonError::into_inner) = true;
+
+        changed.notify_all();
+    }
+
+    fn wait(&self) {
+        let (opened, changed) = &*self.0;
+        let opened = opened.lock().unwrap_or_else(PoisonError::into_inner);
+        let _ = changed
+            .wait_timeout_while(opened, Duration::from_secs(10), |opened| !*opened)
+            .unwrap_or_else(PoisonError::into_inner);
+    }
+}
+
 struct Run {
     result: Result<Vec<Vec<f64>>, String>,
     calls: Vec<Call>,
 }
 
 fn run_of(
+    records: usize,
+    questions: usize,
+    ranges: Vec<Vec<Range<usize>>>,
+    respond: impl Fn(&Call, usize) -> Outcome + std::marker::Send + Sync + 'static,
+) -> Run {
+    run_over(Threads, records, questions, ranges, respond)
+}
+
+fn run_over(
+    mut spawner: impl Spawner + std::marker::Send + 'static,
     records: usize,
     questions: usize,
     ranges: Vec<Vec<Range<usize>>>,
@@ -87,7 +164,8 @@ fn run_of(
             respond(&call, index)
         };
 
-        let _ = sender.send(score_ranges(
+        let _ = sender.send(score_ranges_over(
+            &mut spawner,
             &send,
             &records_of(records),
             &questions_of(questions),
@@ -190,16 +268,22 @@ fn a_single_record_too_large_names_its_record() {
 }
 
 #[test]
-fn a_rate_limit_holds_dispatch_for_its_retry_after() {
-    let run = run_of(
+fn a_rate_limit_holds_the_next_pop_for_its_retry_after() {
+    let run = run_over(
+        Spawned { threads: 0 },
+        3,
         1,
-        1,
-        vec![vec![0..1]],
+        vec![vec![0..1, 1..2, 2..3]],
         script_of(vec![Err(rate_limited(150))]),
     );
+    let sent: Vec<&str> = run
+        .calls
+        .iter()
+        .map(|call| call.records[0].as_str())
+        .collect();
 
-    assert_eq!(run.result, Ok(vec![vec![0.0]]));
-    assert_eq!(run.calls.len(), 2);
+    assert_eq!(run.result, Ok(vec![vec![0.0, 1.0, 2.0]]));
+    assert_eq!(sent, ["r0", "r0", "r1", "r2"]);
     assert!(run.calls[1].at - run.calls[0].at >= Duration::from_millis(150));
 }
 
@@ -294,16 +378,25 @@ fn a_rate_limit_between_transients_keeps_the_retry_count() {
 fn a_fatal_stops_dispatch_while_in_flight_jobs_finish() {
     let finished = Arc::new(AtomicUsize::new(0));
     let counted = Arc::clone(&finished);
-    let run = run_of(3, 1, vec![vec![0..1, 1..3]], move |call, _| {
-        if call.records == vec!["r0".to_string()] {
-            return Err(Failure::Fatal("HTTP 401: denied".to_string()));
-        }
+    let gate = Gate::default();
+    let run = run_over(
+        Spawned { threads: 1 },
+        4,
+        1,
+        vec![vec![0..2, 2..3, 3..4]],
+        move |call, _| {
+            if call.records[0] == "r2" {
+                gate.open();
 
-        std::thread::sleep(Duration::from_millis(100));
-        counted.fetch_add(1, Ordering::SeqCst);
+                return Err(Failure::Fatal("HTTP 401: denied".to_string()));
+            }
 
-        Err(Failure::TooLarge)
-    });
+            gate.wait();
+            counted.fetch_add(1, Ordering::SeqCst);
+
+            Err(Failure::TooLarge)
+        },
+    );
 
     assert_eq!(run.result, Err("HTTP 401: denied".to_string()));
     assert_eq!(finished.load(Ordering::SeqCst), 1);
@@ -311,41 +404,46 @@ fn a_fatal_stops_dispatch_while_in_flight_jobs_finish() {
 }
 
 #[test]
-fn a_fatal_mid_burst_stops_dispatch_before_the_queue_drains() {
-    const JOBS: usize = 3_000;
+fn a_fatal_stops_dispatch_before_the_next_pop() {
+    const JOBS: usize = 100;
 
-    let returned = Arc::new((Mutex::new(false), Condvar::new()));
-    let signalled = Arc::clone(&returned);
-    let run = run_of(
+    let run = run_over(
+        Spawned { threads: 0 },
         JOBS,
         1,
         vec![(0..JOBS).map(|index| index..index + 1).collect()],
-        move |call, _| {
-            let (flag, changed) = &*signalled;
-
+        |call, _| {
             if call.records[0] == "r0" {
-                *flag.lock().unwrap_or_else(PoisonError::into_inner) = true;
-
-                changed.notify_all();
-
                 return Err(Failure::Fatal("HTTP 401: denied".to_string()));
             }
-
-            let flag = flag.lock().unwrap_or_else(PoisonError::into_inner);
-            let _ = changed
-                .wait_timeout_while(flag, Duration::from_secs(10), |returned| !*returned)
-                .unwrap_or_else(PoisonError::into_inner);
 
             answered(call)
         },
     );
 
     assert_eq!(run.result, Err("HTTP 401: denied".to_string()));
-    assert!(
-        run.calls.len() < JOBS / 2,
-        "{} of {JOBS} jobs were sent after the first answered fatally",
-        run.calls.len()
+    assert_eq!(run.calls.len(), 1);
+}
+
+#[test]
+fn a_failed_spawn_is_fatal_and_ends_a_transient_wait() {
+    let gate = Gate::default();
+    let opened = gate.clone();
+    let spawner = Refusing { threads: 1, gate };
+    let run = run_over(spawner, 2, 1, vec![vec![0..1, 1..2]], move |_, _| {
+        opened.open();
+
+        Err(Failure::Transient {
+            message: "HTTP 503: busy".to_string(),
+            retry_after: Some(Duration::from_secs(30)),
+        })
+    });
+
+    assert_eq!(
+        run.result,
+        Err("could not start a request thread: no threads left".to_string())
     );
+    assert_eq!(run.calls.len(), 1);
 }
 
 #[test]
@@ -411,56 +509,85 @@ fn jitter_varies_the_delay() {
     assert!(delays.len() > 1);
 }
 
+fn first_sends_of(
+    respond: impl Fn(&Call) -> Outcome + std::marker::Send + Sync + 'static,
+) -> impl Fn(&Call, usize) -> Outcome + std::marker::Send + Sync + 'static {
+    let sent = Mutex::new(HashSet::new());
+
+    move |call, _| {
+        let first = sent
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(call.records[0].clone());
+
+        if first {
+            respond(call)
+        } else {
+            answered(call)
+        }
+    }
+}
+
 #[test]
 fn a_transient_retry_waits_out_a_hold_set_during_its_wait() {
-    let run = run_of(2, 1, vec![vec![0..1, 1..2]], |call, index| {
-        match (call.records[0].as_str(), index) {
-            ("r0", 0 | 1) => Err(Failure::Transient {
-                message: "HTTP 503: busy".to_string(),
-                retry_after: Some(Duration::from_millis(100)),
-            }),
-            ("r1", 0 | 1) => {
-                std::thread::sleep(Duration::from_millis(20));
+    let gate = Gate::default();
+    let run = run_over(
+        Spawned { threads: 1 },
+        2,
+        1,
+        vec![vec![0..1, 1..2]],
+        first_sends_of(move |call| {
+            if call.records[0] == "r0" {
+                gate.open();
 
-                Err(rate_limited(300))
+                return Err(Failure::Transient {
+                    message: "HTTP 503: busy".to_string(),
+                    retry_after: Some(Duration::from_millis(300)),
+                });
             }
-            _ => answered(call),
-        }
-    });
+
+            gate.wait();
+
+            Err(rate_limited(600))
+        }),
+    );
 
     assert_eq!(run.result, Ok(vec![vec![0.0, 1.0]]));
 
-    let first_of = |record: &str| {
+    let sends_of = |record: &str| -> Vec<Instant> {
         run.calls
             .iter()
-            .position(|call| call.records[0] == record)
-            .unwrap()
+            .filter(|call| call.records[0] == record)
+            .map(|call| call.at)
+            .collect()
     };
-    let rate_limited_at = run.calls[first_of("r1")].at;
-    let retried = run
-        .calls
-        .iter()
-        .filter(|call| call.records[0] == "r0")
-        .nth(1)
-        .unwrap();
 
-    assert!(retried.at - rate_limited_at >= Duration::from_millis(300));
+    assert!(sends_of("r0")[1] - sends_of("r1")[0] >= Duration::from_millis(600));
 }
 
 #[test]
 fn a_fatal_ends_a_transient_wait_without_another_send() {
-    let run = run_of(2, 1, vec![vec![0..1, 1..2]], |call, _| {
-        if call.records[0] == "r0" {
-            return Err(Failure::Transient {
-                message: "HTTP 503: busy".to_string(),
-                retry_after: Some(Duration::from_secs(30)),
-            });
-        }
+    let gate = Gate::default();
+    let run = run_over(
+        Spawned { threads: 1 },
+        2,
+        1,
+        vec![vec![0..1, 1..2]],
+        move |call, _| {
+            if call.records[0] == "r0" {
+                gate.open();
 
-        std::thread::sleep(Duration::from_millis(50));
+                return Err(Failure::Transient {
+                    message: "HTTP 503: busy".to_string(),
+                    retry_after: Some(Duration::from_secs(30)),
+                });
+            }
 
-        Err(Failure::Fatal("HTTP 401: denied".to_string()))
-    });
+            gate.wait();
+
+            Err(Failure::Fatal("HTTP 401: denied".to_string()))
+        },
+    );
 
     assert_eq!(run.result, Err("HTTP 401: denied".to_string()));
     assert_eq!(run.calls.len(), 2);
@@ -511,7 +638,7 @@ fn repeated_bare_rate_limits_climb_the_backoff() {
         state.hold(job_of(0..1, 0), None);
     }
 
-    assert!(state.resume_at - Instant::now() > Duration::from_millis(1_000));
+    assert!(state.held > Duration::from_millis(1_000));
 }
 
 #[test]
@@ -575,19 +702,23 @@ fn split_halves_go_ahead_of_the_queue_first_half_first_with_the_retries_spent() 
 
 #[test]
 fn a_panic_stops_further_dispatch() {
-    let run = run_of(2, 1, vec![vec![0..1, 1..2]], |call, index| {
-        if call.records[0] == "r1" {
-            std::thread::sleep(Duration::from_millis(20));
+    let gate = Gate::default();
+    let run = run_of(
+        2,
+        1,
+        vec![vec![0..1, 1..2]],
+        first_sends_of(move |call| {
+            if call.records[0] == "r1" {
+                gate.open();
 
-            panic!("send failed");
-        }
+                panic!("send failed");
+            }
 
-        if index < 2 {
-            return Err(rate_limited(100));
-        }
+            gate.wait();
 
-        answered(call)
-    });
+            Err(rate_limited(10_000))
+        }),
+    );
 
     assert_eq!(
         run.result,

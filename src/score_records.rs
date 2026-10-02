@@ -1,8 +1,10 @@
 use std::collections::VecDeque;
 use std::hash::{BuildHasher, Hasher, RandomState};
+use std::io;
 use std::ops::Range;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::{Condvar, Mutex, MutexGuard, PoisonError};
+use std::thread::Scope;
 use std::time::{Duration, Instant};
 
 use serde_json::Value;
@@ -21,6 +23,30 @@ const BACKOFF_LIMIT: Duration = Duration::from_secs(5);
 const JITTER: f64 = 0.25;
 
 pub type Send<'a> = dyn Fn(&Value, usize) -> Result<(Vec<f64>, usize), Failure> + Sync + 'a;
+
+type Task<'scope> = Box<dyn FnOnce() + std::marker::Send + 'scope>;
+
+trait Spawner {
+    fn spawn<'scope, 'env>(
+        &mut self,
+        scope: &'scope Scope<'scope, 'env>,
+        task: Task<'scope>,
+    ) -> io::Result<()>;
+}
+
+struct Threads;
+
+impl Spawner for Threads {
+    fn spawn<'scope, 'env>(
+        &mut self,
+        scope: &'scope Scope<'scope, 'env>,
+        task: Task<'scope>,
+    ) -> io::Result<()> {
+        std::thread::Builder::new()
+            .spawn_scoped(scope, task)
+            .map(|_| ())
+    }
+}
 
 fn backoff_of(attempt: u32, jitter: f64) -> Duration {
     let exponential = (BACKOFF_INITIAL * 2u32.pow(attempt.min(4))).min(BACKOFF_LIMIT);
@@ -214,6 +240,16 @@ pub fn score_ranges(
     questions: &[String],
     ranges: Vec<Vec<Range<usize>>>,
 ) -> Result<Vec<Vec<f64>>, String> {
+    score_ranges_over(&mut Threads, send, records, questions, ranges)
+}
+
+fn score_ranges_over(
+    spawner: &mut dyn Spawner,
+    send: &Send,
+    records: &[String],
+    questions: &[String],
+    ranges: Vec<Vec<Range<usize>>>,
+) -> Result<Vec<Vec<f64>>, String> {
     let queue = ranges
         .into_iter()
         .enumerate()
@@ -278,9 +314,10 @@ pub fn score_ranges(
                     drop(state);
 
                     let shared = &shared;
-                    let spawned = std::thread::Builder::new().spawn_scoped(scope, move || {
-                        run_job(shared, send, records, questions, job)
-                    });
+                    let spawned = spawner.spawn(
+                        scope,
+                        Box::new(move || run_job(shared, send, records, questions, job)),
+                    );
 
                     state = shared.lock();
 
