@@ -79,6 +79,7 @@ struct State {
     in_flight: usize,
     resume_at: Instant,
     consecutive_rate_limits: u32,
+    rate_limited_at: Option<Instant>,
     held: Duration,
     fatal: Option<String>,
 }
@@ -88,25 +89,37 @@ impl State {
         self.fatal.get_or_insert(message);
     }
 
+    fn rate_limited_of(&self) -> Duration {
+        self.held
+            + self
+                .rate_limited_at
+                .map_or(Duration::ZERO, |rate_limited_at| {
+                    self.resume_at.saturating_duration_since(rate_limited_at)
+                })
+    }
+
     fn answer(&mut self, job: &Job, answers: &[f64]) {
         self.columns[job.question][job.range.clone()].copy_from_slice(answers);
 
+        self.held = self.rate_limited_of();
+        self.rate_limited_at = None;
         self.consecutive_rate_limits = 0;
     }
 
     fn hold(&mut self, job: Job, retry_after: Option<Duration>) {
+        self.hold_at(job, retry_after, Instant::now());
+    }
+
+    fn hold_at(&mut self, job: Job, retry_after: Option<Duration>, now: Instant) {
         self.consecutive_rate_limits += 1;
 
-        let now = Instant::now();
-        let held_until_at = self.resume_at.max(now);
-        let resume_at = now + delay_of(self.consecutive_rate_limits - 1, retry_after);
+        self.rate_limited_at.get_or_insert(self.resume_at.max(now));
 
-        if resume_at > held_until_at {
-            self.held += resume_at - held_until_at;
-            self.resume_at = resume_at;
-        }
+        self.resume_at = self
+            .resume_at
+            .max(now + delay_of(self.consecutive_rate_limits - 1, retry_after));
 
-        if self.held > HOLD_LIMIT {
+        if self.rate_limited_of() > HOLD_LIMIT {
             self.record("rate limited for 10 minutes".to_string());
         }
 
@@ -267,6 +280,7 @@ fn score_ranges_over(
             in_flight: 0,
             resume_at: Instant::now(),
             consecutive_rate_limits: 0,
+            rate_limited_at: None,
             held: Duration::ZERO,
             fatal: None,
         }),

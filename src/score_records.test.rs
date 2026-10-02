@@ -734,6 +734,7 @@ fn state_of() -> State {
         in_flight: 0,
         resume_at: Instant::now(),
         consecutive_rate_limits: 0,
+        rate_limited_at: None,
         held: Duration::ZERO,
         fatal: None,
     }
@@ -753,7 +754,9 @@ fn the_first_bare_rate_limit_backs_off_from_500_ms() {
 
     state.hold(job_of(0..1, 0), None);
 
-    assert!(state.held >= Duration::from_millis(375) && state.held <= Duration::from_millis(500));
+    let held = state.rate_limited_of();
+
+    assert!(held >= Duration::from_millis(375) && held <= Duration::from_millis(500));
 }
 
 #[test]
@@ -764,7 +767,7 @@ fn repeated_bare_rate_limits_climb_the_backoff() {
         state.hold(job_of(0..1, 0), None);
     }
 
-    assert!(state.held > Duration::from_millis(1_000));
+    assert!(state.rate_limited_of() > Duration::from_millis(1_000));
 }
 
 #[test]
@@ -783,17 +786,72 @@ fn a_success_restarts_the_rate_limit_backoff() {
     state.hold(job_of(0..1, 0), None);
 
     assert_eq!(state.columns, vec![vec![0.5]]);
-    assert!(state.held <= Duration::from_millis(500));
+    assert!(state.rate_limited_of() <= Duration::from_millis(500));
 }
 
 #[test]
-fn overlapping_holds_charge_only_their_extension() {
+fn overlapping_holds_are_charged_once() {
     let mut state = state_of();
 
     state.hold(job_of(0..1, 0), Some(Duration::from_secs(400)));
     state.hold(job_of(0..1, 0), Some(Duration::from_secs(400)));
 
-    assert!(state.held < Duration::from_secs(401));
+    assert!(state.rate_limited_of() < Duration::from_secs(401));
+    assert_eq!(state.fatal, None);
+}
+
+fn hold_after(state: &mut State, started_at: Instant, seconds: u64) {
+    state.hold_at(
+        job_of(0..1, 0),
+        Some(Duration::from_millis(1)),
+        started_at + Duration::from_secs(seconds),
+    );
+}
+
+#[test]
+fn a_rate_limit_streak_is_charged_its_wall_time() {
+    let mut state = state_of();
+    let started_at = state.resume_at;
+
+    for minute in 0..10 {
+        hold_after(&mut state, started_at, minute * 60);
+    }
+
+    assert_eq!(state.rate_limited_of(), Duration::from_millis(540_001));
+    assert_eq!(state.fatal, None);
+
+    hold_after(&mut state, started_at, 600);
+
+    assert_eq!(state.fatal, Some("rate limited for 10 minutes".to_string()));
+}
+
+#[test]
+fn a_success_closes_the_rate_limit_streak() {
+    let mut state = state_of();
+    let started_at = state.resume_at;
+
+    hold_after(&mut state, started_at, 0);
+    hold_after(&mut state, started_at, 300);
+    state.answer(&job_of(0..1, 0), &[0.5]);
+    hold_after(&mut state, started_at, 900);
+    hold_after(&mut state, started_at, 1_100);
+
+    assert_eq!(state.rate_limited_of(), Duration::from_millis(500_002));
+    assert_eq!(state.fatal, None);
+
+    hold_after(&mut state, started_at, 1_200);
+
+    assert_eq!(state.fatal, Some("rate limited for 10 minutes".to_string()));
+}
+
+#[test]
+fn a_rate_limit_long_after_a_hold_charges_none_of_the_gap() {
+    let mut state = state_of();
+    let started_at = state.resume_at;
+
+    hold_after(&mut state, started_at, 1_000);
+
+    assert_eq!(state.rate_limited_of(), Duration::from_millis(1));
     assert_eq!(state.fatal, None);
 }
 
