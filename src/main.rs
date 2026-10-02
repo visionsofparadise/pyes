@@ -11,6 +11,7 @@ mod score_records;
 mod split_records;
 mod write_output;
 
+use std::any::Any;
 use std::env::VarError;
 use std::ffi::OsString;
 use std::io::{BufWriter, Read, Write};
@@ -219,6 +220,16 @@ fn environment_of(variable_of: impl Fn(&str) -> Result<String, VarError>) -> Env
     }
 }
 
+fn panic_message_of(payload: &(dyn Any + Send)) -> String {
+    let message = payload
+        .downcast_ref::<&str>()
+        .copied()
+        .or_else(|| payload.downcast_ref::<String>().map(String::as_str))
+        .unwrap_or("a panic ended the run");
+
+    format!("internal error: {message}")
+}
+
 fn main() {
     let environment = environment_of(|name| std::env::var(name));
     let mut stdin = std::io::stdin().lock();
@@ -239,13 +250,7 @@ fn main() {
         )
     }))
     .unwrap_or_else(|payload| {
-        let message = payload
-            .downcast_ref::<&str>()
-            .copied()
-            .or_else(|| payload.downcast_ref::<String>().map(String::as_str))
-            .unwrap_or("a panic ended the run");
-
-        let _ = writeln!(stderr, "pyes: internal error: {message}");
+        let _ = writeln!(stderr, "pyes: {}", panic_message_of(&*payload));
 
         FAILURE
     });

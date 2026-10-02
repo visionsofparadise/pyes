@@ -108,3 +108,25 @@ fn a_clap_error_prints_its_first_line_and_exits_two() {
         )
     );
 }
+
+#[test]
+fn a_panic_payload_becomes_an_internal_error_message() {
+    let payloads: [Box<dyn Any + Send>; 3] = [
+        Box::new("static text"),
+        Box::new("owned text".to_string()),
+        Box::new(42),
+    ];
+    let messages: Vec<String> = payloads
+        .iter()
+        .map(|payload| panic_message_of(&**payload))
+        .collect();
+
+    assert_eq!(
+        messages,
+        [
+            "internal error: static text",
+            "internal error: owned text",
+            "internal error: a panic ended the run",
+        ]
+    );
+}
