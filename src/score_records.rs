@@ -64,6 +64,7 @@ pub fn delay_of(attempt: u32, retry_after: Option<Duration>) -> Duration {
     retry_after.unwrap_or_else(|| backoff_of(attempt, jitter_of()))
 }
 
+#[derive(Clone)]
 struct Job {
     question: usize,
     range: Range<usize>,
@@ -314,9 +315,10 @@ fn score_ranges_over(
                     drop(state);
 
                     let shared = &shared;
+                    let task_job = job.clone();
                     let spawned = spawner.spawn(
                         scope,
-                        Box::new(move || run_job(shared, send, records, questions, job)),
+                        Box::new(move || run_job(shared, send, records, questions, task_job)),
                     );
 
                     state = shared.lock();
@@ -324,7 +326,11 @@ fn score_ranges_over(
                     if let Err(error) = spawned {
                         state.in_flight -= 1;
 
-                        state.record(format!("could not start a request thread: {error}"));
+                        if state.in_flight == 0 {
+                            state.record(format!("could not start a request thread: {error}"));
+                        } else {
+                            state.hold(job, None);
+                        }
 
                         shared.changed.notify_all();
                     }

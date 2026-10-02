@@ -85,7 +85,8 @@ impl Spawner for Spawned {
 
 struct Refusing {
     threads: usize,
-    gate: Gate,
+    refusals: usize,
+    refused_at: Arc<Mutex<Option<Instant>>>,
 }
 
 impl Spawner for Refusing {
@@ -100,9 +101,19 @@ impl Spawner for Refusing {
             return Threads.spawn(scope, task);
         }
 
-        self.gate.wait();
+        if self.refusals > 0 {
+            self.refusals -= 1;
+            *self
+                .refused_at
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner) = Some(Instant::now());
 
-        Err(io::Error::other("no threads left"))
+            return Err(io::Error::other("no threads left"));
+        }
+
+        task();
+
+        Ok(())
     }
 }
 
@@ -443,24 +454,54 @@ fn a_fatal_stops_dispatch_before_the_next_pop() {
 }
 
 #[test]
-fn a_failed_spawn_is_fatal_and_ends_a_transient_wait() {
-    let gate = Gate::default();
-    let opened = gate.clone();
-    let spawner = Refusing { threads: 1, gate };
-    let run = run_over(spawner, 2, 1, vec![vec![0..1, 1..2]], move |_, _| {
-        opened.open();
-
-        Err(Failure::Transient {
-            message: "HTTP 503: busy".to_string(),
-            retry_after: Some(Duration::from_secs(30)),
-        })
+fn a_failed_spawn_with_nothing_in_flight_is_fatal() {
+    let spawner = Refusing {
+        threads: 0,
+        refusals: 1,
+        refused_at: Arc::default(),
+    };
+    let run = run_over(spawner, 2, 1, vec![vec![0..1, 1..2]], |call, _| {
+        answered(call)
     });
 
     assert_eq!(
         run.result,
         Err("could not start a request thread: no threads left".to_string())
     );
-    assert_eq!(run.calls.len(), 1);
+    assert_eq!(run.calls.len(), 0);
+}
+
+#[test]
+fn a_failed_spawn_while_jobs_are_in_flight_requeues_and_holds() {
+    let refused_at = Arc::default();
+    let spawner = Refusing {
+        threads: 1,
+        refusals: 1,
+        refused_at: Arc::clone(&refused_at),
+    };
+    let retried = Gate::default();
+    let run = run_over(spawner, 2, 1, vec![vec![0..1, 1..2]], move |call, _| {
+        if call.records[0] == "r0" {
+            retried.wait();
+        } else {
+            retried.open();
+        }
+
+        answered(call)
+    });
+    let refused_at = refused_at
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .expect("the second spawn was not refused");
+    let retry = run
+        .calls
+        .iter()
+        .find(|call| call.records[0] == "r1")
+        .expect("the refused job was not sent");
+
+    assert_eq!(run.result, Ok(vec![vec![0.0, 1.0]]));
+    assert_eq!(run.calls.len(), 2);
+    assert!(retry.at - refused_at >= Duration::from_millis(375));
 }
 
 #[test]
