@@ -83,6 +83,50 @@ fn an_error_response_whose_body_fails_to_arrive_is_transient() {
 }
 
 #[test]
+fn an_error_body_that_is_not_utf8_is_read_lossily() {
+    let mock = MockJev::start_raw(|_| {
+        b"HTTP/1.1 503 Service Unavailable\r\nContent-Length: 7\r\nConnection: close\r\n\r\n\xff\xfe busy"
+            .to_vec()
+    });
+
+    assert_eq!(
+        outcome_of(mock.url.clone()),
+        Err(Failure::Transient {
+            message: "HTTP 503: \u{fffd}\u{fffd} busy".to_string(),
+            retry_after: None
+        })
+    );
+}
+
+#[test]
+fn a_200_whose_body_is_not_utf8_is_fatal() {
+    let mock = MockJev::start_raw(|_| {
+        b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\n\xff\xfe".to_vec()
+    });
+    let outcome = outcome_of(mock.url.clone());
+
+    assert!(
+        matches!(&outcome, Err(Failure::Fatal(message)) if message.starts_with("unreadable response: ")),
+        "{outcome:?}"
+    );
+}
+
+#[test]
+fn a_rate_limit_whose_body_fails_to_arrive_still_holds() {
+    let mock = MockJev::start_raw(|_| {
+        b"HTTP/1.1 429 Too Many Requests\r\nretry-after-ms: 50\r\nContent-Length: 100\r\nConnection: close\r\n\r\nshort"
+            .to_vec()
+    });
+
+    assert_eq!(
+        outcome_of(mock.url.clone()),
+        Err(Failure::RateLimited {
+            retry_after: Some(Duration::from_millis(50))
+        })
+    );
+}
+
+#[test]
 fn a_malformed_response_is_a_transient_protocol_error() {
     let mock = MockJev::start_raw(|_| b"NOT HTTP AT ALL\r\n\r\n".to_vec());
 

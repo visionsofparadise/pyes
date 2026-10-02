@@ -52,6 +52,20 @@ fn a_tls_verdict_is_fatal() {
 }
 
 #[test]
+fn invalid_data_while_reading_a_body_is_transient() {
+    let error = ureq::Error::Io(io::Error::new(io::ErrorKind::InvalidData, "bad record"));
+    let message = format!("request failed: {error}");
+
+    assert_eq!(
+        transport_failure_of(error),
+        Failure::Transient {
+            message,
+            retry_after: None
+        }
+    );
+}
+
+#[test]
 fn the_agent_times_out_at_30_s_and_uses_no_proxy() {
     let client = Client::new("http://127.0.0.1:1".to_string(), "key".to_string());
     let config = client.agent.config();

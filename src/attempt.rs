@@ -35,20 +35,10 @@ impl Client {
     }
 }
 
-fn request_failure_of(error: ureq::Error) -> Failure {
+fn transport_failure_of(error: ureq::Error) -> Failure {
     let message = format!("request failed: {error}");
 
     match error {
-        ureq::Error::Io(ref cause)
-            if cause
-                .raw_os_error()
-                .is_some_and(|code| EXHAUSTION_ERRORS.contains(&code)) =>
-        {
-            Failure::RateLimited { retry_after: None }
-        }
-        ureq::Error::Io(ref cause) if cause.kind() == std::io::ErrorKind::InvalidData => {
-            Failure::Fatal(message)
-        }
         ureq::Error::Io(_)
         | ureq::Error::Timeout(_)
         | ureq::Error::HostNotFound
@@ -60,6 +50,22 @@ fn request_failure_of(error: ureq::Error) -> Failure {
             retry_after: None,
         },
         _ => Failure::Fatal(message),
+    }
+}
+
+fn request_failure_of(error: ureq::Error) -> Failure {
+    match error {
+        ureq::Error::Io(ref cause)
+            if cause
+                .raw_os_error()
+                .is_some_and(|code| EXHAUSTION_ERRORS.contains(&code)) =>
+        {
+            Failure::RateLimited { retry_after: None }
+        }
+        ureq::Error::Io(ref cause) if cause.kind() == std::io::ErrorKind::InvalidData => {
+            Failure::Fatal(format!("request failed: {error}"))
+        }
+        _ => transport_failure_of(error),
     }
 }
 
@@ -84,23 +90,31 @@ pub fn attempt(client: &Client, body: &Value, count: usize) -> Result<(Vec<f64>,
     };
     let retry_after_ms = header_of("retry-after-ms");
     let retry_after = header_of("retry-after");
+    let status_failure_of = |text: &str| {
+        failure_of(
+            status,
+            text,
+            retry_after_ms.as_deref(),
+            retry_after.as_deref(),
+            SystemTime::now(),
+        )
+    };
 
-    let text = response
+    if status == 429 {
+        return Err(status_failure_of(""));
+    }
+
+    let bytes = response
         .body_mut()
-        .read_to_string()
-        .map_err(request_failure_of)?;
+        .read_to_vec()
+        .map_err(transport_failure_of)?;
+    let text = String::from_utf8_lossy(&bytes);
 
     if status == 200 {
         return answers_of(&text, count).map_err(Failure::Fatal);
     }
 
-    Err(failure_of(
-        status,
-        &text,
-        retry_after_ms.as_deref(),
-        retry_after.as_deref(),
-        SystemTime::now(),
-    ))
+    Err(status_failure_of(&text))
 }
 
 #[cfg(test)]
