@@ -273,18 +273,23 @@ pub fn score_ranges(
                 }
 
                 if let Some(job) = state.queue.pop_front() {
+                    state.in_flight += 1;
+
+                    drop(state);
+
                     let shared = &shared;
                     let spawned = std::thread::Builder::new().spawn_scoped(scope, move || {
                         run_job(shared, send, records, questions, job)
                     });
 
-                    match spawned {
-                        Ok(_) => state.in_flight += 1,
-                        Err(error) => {
-                            state.record(format!("could not start a request thread: {error}"));
+                    state = shared.lock();
 
-                            shared.changed.notify_all();
-                        }
+                    if let Err(error) = spawned {
+                        state.in_flight -= 1;
+
+                        state.record(format!("could not start a request thread: {error}"));
+
+                        shared.changed.notify_all();
                     }
                 }
             }

@@ -295,6 +295,44 @@ fn a_fatal_stops_dispatch_while_in_flight_jobs_finish() {
 }
 
 #[test]
+fn a_fatal_mid_burst_stops_dispatch_before_the_queue_drains() {
+    const JOBS: usize = 3_000;
+
+    let returned = Arc::new((Mutex::new(false), Condvar::new()));
+    let signalled = Arc::clone(&returned);
+    let run = run_of(
+        JOBS,
+        1,
+        vec![(0..JOBS).map(|index| index..index + 1).collect()],
+        move |call, _| {
+            let (flag, changed) = &*signalled;
+
+            if call.records[0] == "r0" {
+                *flag.lock().unwrap_or_else(PoisonError::into_inner) = true;
+
+                changed.notify_all();
+
+                return Err(Failure::Fatal("HTTP 401: denied".to_string()));
+            }
+
+            let flag = flag.lock().unwrap_or_else(PoisonError::into_inner);
+            let _ = changed
+                .wait_timeout_while(flag, Duration::from_secs(10), |returned| !*returned)
+                .unwrap_or_else(PoisonError::into_inner);
+
+            answered(call)
+        },
+    );
+
+    assert_eq!(run.result, Err("HTTP 401: denied".to_string()));
+    assert!(
+        run.calls.len() < JOBS / 2,
+        "{} of {JOBS} jobs were sent after the first answered fatally",
+        run.calls.len()
+    );
+}
+
+#[test]
 fn a_panicking_send_returns_the_internal_error() {
     let run = run_of(2, 1, vec![vec![0..1, 1..2]], |call, _| {
         if call.records == vec!["r1".to_string()] {
