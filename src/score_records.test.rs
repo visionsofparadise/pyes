@@ -261,6 +261,22 @@ fn five_transients_then_success_answers() {
 }
 
 #[test]
+fn a_transient_retry_waits_for_its_retry_after() {
+    let run = run_of(
+        1,
+        1,
+        vec![vec![0..1]],
+        script_of(vec![Err(Failure::Transient {
+            message: "HTTP 503: busy".to_string(),
+            retry_after: Some(Duration::from_millis(1200)),
+        })]),
+    );
+
+    assert_eq!(run.result, Ok(vec![vec![0.0]]));
+    assert!(run.calls[1].at - run.calls[0].at >= Duration::from_millis(1200));
+}
+
+#[test]
 fn a_rate_limit_between_transients_keeps_the_retry_count() {
     let mut outcomes = vec![Err(transient()), Err(rate_limited(1))];
 
@@ -389,6 +405,13 @@ fn jitter_stays_within_75_to_100_percent() {
 }
 
 #[test]
+fn jitter_varies_the_delay() {
+    let delays: std::collections::HashSet<Duration> = (0..200).map(|_| delay_of(0, None)).collect();
+
+    assert!(delays.len() > 1);
+}
+
+#[test]
 fn a_transient_retry_waits_out_a_hold_set_during_its_wait() {
     let run = run_of(2, 1, vec![vec![0..1, 1..2]], |call, index| {
         match (call.records[0].as_str(), index) {
@@ -478,6 +501,17 @@ fn the_first_bare_rate_limit_backs_off_from_500_ms() {
     state.hold(job_of(0..1, 0), None);
 
     assert!(state.held >= Duration::from_millis(375) && state.held <= Duration::from_millis(500));
+}
+
+#[test]
+fn repeated_bare_rate_limits_climb_the_backoff() {
+    let mut state = state_of();
+
+    for _ in 0..3 {
+        state.hold(job_of(0..1, 0), None);
+    }
+
+    assert!(state.resume_at - Instant::now() > Duration::from_millis(1_000));
 }
 
 #[test]
