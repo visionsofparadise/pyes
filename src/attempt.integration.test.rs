@@ -127,6 +127,23 @@ fn a_rate_limit_whose_body_fails_to_arrive_still_holds() {
 }
 
 #[test]
+fn a_redirect_is_raised_without_being_followed() {
+    let mock = MockJev::start(|_| {
+        (
+            302,
+            vec![("Location".to_string(), "/moved".to_string())],
+            String::new(),
+        )
+    });
+
+    assert_eq!(
+        outcome_of(mock.url.clone()),
+        Err(Failure::Fatal("HTTP 302: ".to_string()))
+    );
+    assert_eq!(mock.requests.lock().unwrap().len(), 1);
+}
+
+#[test]
 fn a_malformed_response_is_a_transient_protocol_error() {
     let mock = MockJev::start_raw(|_| b"NOT HTTP AT ALL\r\n\r\n".to_vec());
 

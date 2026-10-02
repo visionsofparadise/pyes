@@ -24,6 +24,7 @@ impl Client {
             .http_status_as_error(false)
             .timeout_global(Some(TIMEOUT))
             .proxy(None)
+            .max_redirects(0)
             .build()
             .into();
 
