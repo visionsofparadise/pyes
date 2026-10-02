@@ -52,7 +52,7 @@ fn elsewhere_home_config_is_the_fallback() {
     );
     assert_eq!(
         key_path_of(false, None, None, None),
-        Err("neither XDG_CONFIG_HOME nor HOME is set".to_string())
+        Err("XDG_CONFIG_HOME is not set and HOME is not set".to_string())
     );
 }
 
@@ -80,5 +80,38 @@ fn elsewhere_a_relative_xdg_config_home_is_ignored() {
     assert_eq!(
         key_path_of(false, None, Some("relative/xdg"), Some("/home")),
         Ok(Path::new("/home").join(".config").join("pyes").join("key"))
+    );
+}
+
+#[test]
+fn windows_refuses_a_relative_appdata() {
+    for appdata in ["data", r"C:data", r"\data"] {
+        assert_eq!(
+            key_path_of(true, Some(appdata), Some("/xdg"), Some("/home")),
+            Err("APPDATA is relative".to_string())
+        );
+    }
+
+    for appdata in [r"C:\data", r"\\server\share"] {
+        assert_eq!(
+            key_path_of(true, Some(appdata), None, None),
+            Ok(Path::new(appdata).join("pyes").join("key"))
+        );
+    }
+}
+
+#[test]
+fn elsewhere_a_relative_home_counts_as_unset_and_the_error_names_each_cause() {
+    assert_eq!(
+        key_path_of(false, None, Some("relative/xdg"), Some("relative/home")),
+        Err("XDG_CONFIG_HOME is relative and HOME is relative".to_string())
+    );
+    assert_eq!(
+        key_path_of(false, None, Some("relative/xdg"), None),
+        Err("XDG_CONFIG_HOME is relative and HOME is not set".to_string())
+    );
+    assert_eq!(
+        key_path_of(false, None, None, Some("home")),
+        Err("XDG_CONFIG_HOME is not set and HOME is relative".to_string())
     );
 }

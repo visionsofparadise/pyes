@@ -6,6 +6,33 @@ fn present(value: Option<&str>) -> Option<&str> {
     value.filter(|value| !value.is_empty())
 }
 
+fn unix_absolute(path: &str) -> bool {
+    path.starts_with('/')
+}
+
+fn windows_absolute(path: &str) -> bool {
+    let bytes = path.as_bytes();
+
+    path.starts_with(r"\\")
+        || path.starts_with("//")
+        || (bytes.len() > 2
+            && bytes[0].is_ascii_alphabetic()
+            && bytes[1] == b':'
+            && matches!(bytes[2], b'\\' | b'/'))
+}
+
+fn folder_of<'a>(
+    name: &str,
+    value: Option<&'a str>,
+    absolute: fn(&str) -> bool,
+) -> Result<&'a str, String> {
+    match present(value) {
+        None => Err(format!("{name} is not set")),
+        Some(path) if !absolute(path) => Err(format!("{name} is relative")),
+        Some(path) => Ok(path),
+    }
+}
+
 pub fn key_path_of(
     windows: bool,
     appdata: Option<&str>,
@@ -13,14 +40,18 @@ pub fn key_path_of(
     home: Option<&str>,
 ) -> Result<PathBuf, String> {
     let folder = if windows {
-        PathBuf::from(present(appdata).ok_or("APPDATA is not set")?)
-    } else if let Some(xdg_config_home) =
-        present(xdg_config_home).filter(|path| path.starts_with('/'))
-    {
-        PathBuf::from(xdg_config_home)
+        PathBuf::from(folder_of("APPDATA", appdata, windows_absolute)?)
     } else {
-        PathBuf::from(present(home).ok_or("neither XDG_CONFIG_HOME nor HOME is set")?)
-            .join(".config")
+        match (
+            folder_of("XDG_CONFIG_HOME", xdg_config_home, unix_absolute),
+            folder_of("HOME", home, unix_absolute),
+        ) {
+            (Ok(xdg_config_home), _) => PathBuf::from(xdg_config_home),
+            (_, Ok(home)) => PathBuf::from(home).join(".config"),
+            (Err(xdg_config_home), Err(home)) => {
+                return Err(format!("{xdg_config_home} and {home}"))
+            }
+        }
     };
 
     Ok(folder.join("pyes").join("key"))
