@@ -708,6 +708,16 @@ fn a_hold_past_the_limit_is_fatal() {
 }
 
 #[test]
+fn the_first_fatal_is_the_one_reported() {
+    let mut state = state_of();
+
+    state.record("HTTP 401: denied".to_string());
+    state.record("internal error: a request thread panicked".to_string());
+
+    assert_eq!(state.fatal, Some("HTTP 401: denied".to_string()));
+}
+
+#[test]
 fn a_rate_limited_job_goes_back_ahead_of_the_queue() {
     let mut state = state_of();
 
