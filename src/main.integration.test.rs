@@ -463,6 +463,43 @@ fn any_other_stdout_error_raises() {
     );
 }
 
+#[derive(Default)]
+struct FlushedOnly {
+    written: Vec<u8>,
+    flushed: Vec<u8>,
+}
+
+impl Write for FlushedOnly {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        self.written.extend_from_slice(bytes);
+
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.flushed.append(&mut self.written);
+
+        Ok(())
+    }
+}
+
+#[test]
+fn nul_output_is_flushed_through_its_last_record() {
+    let folder = Folder::new();
+    let mock = MockJev::start(even_odds_of);
+    let (stdout, _, code) = outcome_into(
+        &["-z", "Is this a?"],
+        b"a\0b\0",
+        folder.environment_of(Some("test"), &mock),
+        FlushedOnly::default(),
+    );
+
+    assert_eq!(
+        (stdout.flushed, code),
+        (b"0.5\ta\x000.5\tb\0".to_vec(), SUCCESS)
+    );
+}
+
 #[test]
 fn a_second_auth_replaces_a_longer_key_whole() {
     let folder = Folder::new();
