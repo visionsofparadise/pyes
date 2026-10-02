@@ -101,10 +101,6 @@ jobs:
          - name: Install the musl C compiler ring builds with
            if: endsWith(matrix.target, '-unknown-linux-musl')
            run: sudo apt-get update && sudo apt-get install -y musl-tools && echo "CC_$(echo '${{ matrix.target }}' | tr - _)=musl-gcc" >> "$GITHUB_ENV"
-         - name: Put LLVM's clang on PATH for ring
-           if: matrix.target == 'aarch64-pc-windows-msvc'
-           shell: pwsh
-           run: if (-not (Test-Path 'C:\Program Files\LLVM\bin\clang.exe')) { throw 'clang missing' }; Add-Content -Path $env:GITHUB_PATH -Value 'C:\Program Files\LLVM\bin'
          - name: Read the package version
            shell: bash
            run: |
