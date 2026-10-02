@@ -51,3 +51,60 @@ fn variables_that_are_not_unicode_are_listed_by_name() {
         (None, Some("C:/data"), None)
     );
 }
+
+fn run_of(arguments: &[&str]) -> (String, String, i32) {
+    let arguments = std::iter::once("pyes")
+        .chain(arguments.iter().copied())
+        .map(OsString::from)
+        .collect();
+    let mut stdin: &[u8] = b"";
+    let mut stdout = Vec::new();
+    let mut stderr = Vec::new();
+    let code = run(
+        arguments,
+        &with_base_url(None),
+        &mut Streams {
+            stdin: &mut stdin,
+            stdout: &mut stdout,
+            stderr: &mut stderr,
+        },
+    );
+
+    (
+        String::from_utf8(stdout).unwrap(),
+        String::from_utf8(stderr).unwrap(),
+        code,
+    )
+}
+
+#[test]
+fn help_prints_to_stdout_and_exits_zero() {
+    let (stdout, stderr, code) = run_of(&["--help"]);
+
+    assert!(stdout.contains("Usage: pyes"));
+    assert_eq!((stderr, code), (String::new(), SUCCESS));
+}
+
+#[test]
+fn version_prints_to_stdout_and_exits_zero() {
+    assert_eq!(
+        run_of(&["--version"]),
+        (
+            format!("pyes {}\n", env!("CARGO_PKG_VERSION")),
+            String::new(),
+            SUCCESS
+        )
+    );
+}
+
+#[test]
+fn a_clap_error_prints_its_first_line_and_exits_two() {
+    assert_eq!(
+        run_of(&["--bogus", "Is this a?"]),
+        (
+            String::new(),
+            "pyes: unexpected argument '--bogus' found\n".to_string(),
+            FAILURE
+        )
+    );
+}
