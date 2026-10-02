@@ -73,6 +73,28 @@ pub fn key_path_of(
     Ok(folder.join("pyes").join("key"))
 }
 
+pub fn stored_key_path_of(
+    windows: bool,
+    appdata: Option<&str>,
+    xdg_config_home: Option<&str>,
+    home: Option<&str>,
+    not_unicode: &[&str],
+) -> Result<Option<PathBuf>, String> {
+    let unset =
+        |name: &str, value: Option<&str>| present(value).is_none() && !not_unicode.contains(&name);
+    let every_folder_unset = if windows {
+        unset("APPDATA", appdata)
+    } else {
+        unset("XDG_CONFIG_HOME", xdg_config_home) && unset("HOME", home)
+    };
+
+    if every_folder_unset {
+        return Ok(None);
+    }
+
+    key_path_of(windows, appdata, xdg_config_home, home, not_unicode).map(Some)
+}
+
 pub fn bare_key_of(text: &str) -> &str {
     text.strip_prefix('\u{feff}').unwrap_or(text).trim()
 }

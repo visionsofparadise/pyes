@@ -21,7 +21,9 @@ use clap::error::ErrorKind;
 use clap::Parser;
 
 use attempt::{Client, BASE_URL};
-use key_of::{bare_key_of, header_key_of, key_of, key_path_of, read_stored_key, store_key};
+use key_of::{
+    bare_key_of, header_key_of, key_of, key_path_of, read_stored_key, store_key, stored_key_path_of,
+};
 use parse_arguments::{parse_arguments, Arguments, Command};
 use score_records::score_records;
 use split_records::{split_records, terminator_of, Separator};
@@ -87,6 +89,16 @@ fn key_path_from(environment: &Environment) -> Result<std::path::PathBuf, String
     )
 }
 
+fn stored_key_path_from(environment: &Environment) -> Result<Option<std::path::PathBuf>, String> {
+    stored_key_path_of(
+        cfg!(windows),
+        environment.appdata.as_deref(),
+        environment.xdg_config_home.as_deref(),
+        environment.home.as_deref(),
+        &environment.not_unicode,
+    )
+}
+
 fn authenticate(environment: &Environment, streams: &mut Streams) -> Result<(), String> {
     let mut input = String::new();
 
@@ -134,9 +146,9 @@ fn score(
 
     let stored = match environment.api_key.as_deref().map(bare_key_of) {
         Some(key) if !key.is_empty() => None,
-        _ => match key_path_from(environment) {
-            Ok(path) => read_stored_key(&path)?.map(|text| (path, text)),
-            Err(_) => None,
+        _ => match stored_key_path_from(environment)? {
+            Some(path) => read_stored_key(&path)?.map(|text| (path, text)),
+            None => None,
         },
     };
     let key = key_of(

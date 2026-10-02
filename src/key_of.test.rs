@@ -160,3 +160,45 @@ fn a_variable_that_is_not_unicode_is_named_as_such() {
         Ok(Path::new("/home").join(".config").join("pyes").join("key"))
     );
 }
+
+#[test]
+fn a_stored_key_path_is_none_only_when_every_folder_is_unset() {
+    assert_eq!(
+        stored_key_path_of(true, Some(""), None, None, &[]),
+        Ok(None)
+    );
+    assert_eq!(
+        stored_key_path_of(false, None, Some(""), None, &[]),
+        Ok(None)
+    );
+    assert_eq!(
+        stored_key_path_of(true, Some("C:/data"), None, None, &[]),
+        Ok(Some(Path::new("C:/data").join("pyes").join("key")))
+    );
+    assert_eq!(
+        stored_key_path_of(false, None, None, Some("/home"), &[]),
+        Ok(Some(
+            Path::new("/home").join(".config").join("pyes").join("key")
+        ))
+    );
+}
+
+#[test]
+fn a_stored_key_path_raises_for_a_folder_that_is_set_but_unusable() {
+    assert_eq!(
+        stored_key_path_of(true, None, None, None, &["APPDATA"]),
+        Err("APPDATA is not valid Unicode".to_string())
+    );
+    assert_eq!(
+        stored_key_path_of(false, None, None, None, &["HOME"]),
+        Err("XDG_CONFIG_HOME is not set and HOME is not valid Unicode".to_string())
+    );
+    assert_eq!(
+        stored_key_path_of(true, Some("data"), None, None, &[]),
+        Err("APPDATA is relative".to_string())
+    );
+    assert_eq!(
+        stored_key_path_of(false, None, Some("xdg"), None, &[]),
+        Err("XDG_CONFIG_HOME is relative and HOME is not set".to_string())
+    );
+}

@@ -540,6 +540,59 @@ fn a_set_key_needs_no_key_folder() {
     );
 }
 
+fn not_unicode_folders_of(api_key: Option<&str>, mock: &MockJev) -> Environment {
+    let mut environment = pathless_of(api_key, mock);
+
+    environment.not_unicode = vec!["APPDATA", "XDG_CONFIG_HOME", "HOME"];
+
+    environment
+}
+
+#[test]
+fn a_key_folder_that_is_not_unicode_raises_when_the_key_file_is_consulted() {
+    let mock = MockJev::start(half);
+    let outcome = outcome_of(
+        &["Is this a?"],
+        b"a
+",
+        not_unicode_folders_of(None, &mock),
+    );
+
+    assert_eq!(outcome.code, FAILURE);
+    assert!(
+        outcome.stderr.starts_with("pyes: ")
+            && outcome.stderr.ends_with(
+                "is not valid Unicode
+"
+            ),
+        "{}",
+        outcome.stderr
+    );
+    assert_eq!(mock.requests.lock().unwrap().len(), 0);
+}
+
+#[test]
+fn a_set_key_skips_a_key_folder_that_is_not_unicode() {
+    let mock = MockJev::start(half);
+    let outcome = outcome_of(
+        &["Is this a?"],
+        b"a
+",
+        not_unicode_folders_of(Some("test"), &mock),
+    );
+
+    assert_eq!(
+        (text_of(&outcome.stdout), outcome.stderr, outcome.code),
+        (
+            "0.5	a
+"
+            .to_string(),
+            String::new(),
+            SUCCESS
+        )
+    );
+}
+
 #[test]
 fn empty_stdin_exits_zero_without_a_key_or_a_request() {
     let mock = MockJev::start(half);
