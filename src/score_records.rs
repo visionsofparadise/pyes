@@ -21,6 +21,7 @@ pub const HOLD_LIMIT: Duration = Duration::from_secs(600);
 const BACKOFF_INITIAL: Duration = Duration::from_millis(500);
 const BACKOFF_LIMIT: Duration = Duration::from_secs(5);
 const JITTER: f64 = 0.25;
+const RATE_LIMITED: &str = "rate limited";
 
 pub type Send<'a> = dyn Fn(&Value, usize) -> Result<(Vec<f64>, usize), Failure> + Sync + 'a;
 
@@ -106,11 +107,17 @@ impl State {
         self.consecutive_rate_limits = 0;
     }
 
-    fn hold(&mut self, job: Job, retry_after: Option<Duration>) {
-        self.hold_from(job, retry_after, Instant::now());
+    fn hold(&mut self, job: Job, retry_after: Option<Duration>, cause: &str) {
+        self.hold_from(job, retry_after, cause, Instant::now());
     }
 
-    fn hold_from(&mut self, job: Job, retry_after: Option<Duration>, refused_at: Instant) {
+    fn hold_from(
+        &mut self,
+        job: Job,
+        retry_after: Option<Duration>,
+        cause: &str,
+        refused_at: Instant,
+    ) {
         self.consecutive_rate_limits += 1;
 
         self.rate_limited_at
@@ -121,7 +128,7 @@ impl State {
             .max(refused_at + delay_of(self.consecutive_rate_limits - 1, retry_after));
 
         if self.rate_limited_of() > HOLD_LIMIT {
-            self.record("rate limited for 10 minutes".to_string());
+            self.record(format!("{cause} for 10 minutes"));
         }
 
         self.queue.push_front(job);
@@ -196,13 +203,13 @@ fn run_job(shared: &Shared, send: &Send, records: &[String], questions: &[String
                 return;
             }
             Err(Failure::RateLimited { retry_after }) => {
-                state.hold(job, retry_after);
+                state.hold(job, retry_after, RATE_LIMITED);
 
                 return;
             }
             Err(Failure::Exhausted(message)) => {
                 if state.in_flight > 1 {
-                    state.hold(job, None);
+                    state.hold(job, None, &message);
                 } else {
                     state.record(message);
                 }
@@ -346,12 +353,14 @@ fn score_ranges_over(
                     state = shared.lock();
 
                     if let Err(error) = spawned {
+                        let message = format!("could not start a request thread: {error}");
+
                         state.in_flight -= 1;
 
                         if state.in_flight == 0 {
-                            state.record(format!("could not start a request thread: {error}"));
+                            state.record(message);
                         } else {
-                            state.hold(job, None);
+                            state.hold(job, None, &message);
                         }
 
                         shared.changed.notify_all();

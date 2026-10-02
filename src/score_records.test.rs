@@ -299,6 +299,21 @@ fn a_rate_limit_holds_the_next_pop_for_its_retry_after() {
 }
 
 #[test]
+fn a_rate_limit_past_the_hold_limit_ends_the_run_as_rate_limited() {
+    let run = run_of(
+        1,
+        1,
+        vec![vec![0..1]],
+        script_of(vec![Err(Failure::RateLimited {
+            retry_after: Some(HOLD_LIMIT + Duration::from_secs(1)),
+        })]),
+    );
+
+    assert_eq!(run.result, Err("rate limited for 10 minutes".to_string()));
+    assert_eq!(run.calls.len(), 1);
+}
+
+#[test]
 fn rate_limits_spend_no_retries() {
     let mut outcomes: Vec<Outcome> = (0..3).map(|_| Err(rate_limit_of(1))).collect();
 
@@ -798,7 +813,7 @@ fn queued_of(state: &State) -> Vec<(Range<usize>, u32)> {
 fn the_first_bare_rate_limit_backs_off_from_500_ms() {
     let mut state = state_of();
 
-    state.hold(job_of(0..1, 0), None);
+    state.hold(job_of(0..1, 0), None, RATE_LIMITED);
 
     let held = state.rate_limited_of();
 
@@ -810,7 +825,7 @@ fn repeated_bare_rate_limits_climb_the_backoff() {
     let mut state = state_of();
 
     for _ in 0..3 {
-        state.hold(job_of(0..1, 0), None);
+        state.hold(job_of(0..1, 0), None, RATE_LIMITED);
     }
 
     assert!(state.rate_limited_of() > Duration::from_millis(1_000));
@@ -821,7 +836,7 @@ fn a_success_restarts_the_rate_limit_backoff() {
     let mut state = state_of();
 
     for _ in 0..3 {
-        state.hold(job_of(0..1, 0), None);
+        state.hold(job_of(0..1, 0), None, RATE_LIMITED);
     }
 
     state.answer(&job_of(0..1, 0), &[0.5]);
@@ -829,7 +844,7 @@ fn a_success_restarts_the_rate_limit_backoff() {
     state.resume_at = Instant::now();
     state.held = Duration::ZERO;
 
-    state.hold(job_of(0..1, 0), None);
+    state.hold(job_of(0..1, 0), None, RATE_LIMITED);
 
     assert_eq!(state.columns, vec![vec![0.5]]);
     assert!(state.rate_limited_of() <= Duration::from_millis(500));
@@ -839,8 +854,16 @@ fn a_success_restarts_the_rate_limit_backoff() {
 fn overlapping_holds_are_charged_once() {
     let mut state = state_of();
 
-    state.hold(job_of(0..1, 0), Some(Duration::from_secs(400)));
-    state.hold(job_of(0..1, 0), Some(Duration::from_secs(400)));
+    state.hold(
+        job_of(0..1, 0),
+        Some(Duration::from_secs(400)),
+        RATE_LIMITED,
+    );
+    state.hold(
+        job_of(0..1, 0),
+        Some(Duration::from_secs(400)),
+        RATE_LIMITED,
+    );
 
     assert!(state.rate_limited_of() < Duration::from_secs(401));
     assert_eq!(state.fatal, None);
@@ -850,6 +873,7 @@ fn hold_after(state: &mut State, started_at: Instant, seconds: u64) {
     state.hold_from(
         job_of(0..1, 0),
         Some(Duration::from_millis(1)),
+        RATE_LIMITED,
         started_at + Duration::from_secs(seconds),
     );
 }
@@ -905,8 +929,12 @@ fn a_rate_limit_long_after_a_hold_charges_none_of_the_gap() {
 fn a_shorter_rate_limit_leaves_a_longer_hold_in_place() {
     let mut state = state_of();
 
-    state.hold(job_of(0..1, 0), Some(Duration::from_secs(10)));
-    state.hold(job_of(0..1, 0), Some(Duration::from_millis(1)));
+    state.hold(job_of(0..1, 0), Some(Duration::from_secs(10)), RATE_LIMITED);
+    state.hold(
+        job_of(0..1, 0),
+        Some(Duration::from_millis(1)),
+        RATE_LIMITED,
+    );
 
     assert!(state.resume_at > Instant::now() + Duration::from_secs(5));
 }
@@ -915,9 +943,32 @@ fn a_shorter_rate_limit_leaves_a_longer_hold_in_place() {
 fn a_hold_past_the_limit_is_fatal() {
     let mut state = state_of();
 
-    state.hold(job_of(0..1, 0), Some(HOLD_LIMIT + Duration::from_secs(1)));
+    state.hold(
+        job_of(0..1, 0),
+        Some(HOLD_LIMIT + Duration::from_secs(1)),
+        RATE_LIMITED,
+    );
 
     assert_eq!(state.fatal, Some("rate limited for 10 minutes".to_string()));
+}
+
+#[test]
+fn a_hold_past_the_limit_names_the_cause_that_ended_it() {
+    let mut state = state_of();
+    let started_at = state.resume_at;
+
+    hold_after(&mut state, started_at, 0);
+    state.hold_from(
+        job_of(0..1, 0),
+        None,
+        "could not start a request thread: no threads left",
+        started_at + HOLD_LIMIT,
+    );
+
+    assert_eq!(
+        state.fatal,
+        Some("could not start a request thread: no threads left for 10 minutes".to_string())
+    );
 }
 
 #[test]
@@ -935,7 +986,11 @@ fn a_rate_limited_job_goes_back_ahead_of_the_queue() {
     let mut state = state_of();
 
     state.queue.push_back(job_of(1..2, 0));
-    state.hold(job_of(0..1, 2), Some(Duration::from_millis(1)));
+    state.hold(
+        job_of(0..1, 2),
+        Some(Duration::from_millis(1)),
+        RATE_LIMITED,
+    );
 
     assert_eq!(queued_of(&state), vec![(0..1, 2), (1..2, 0)]);
 }
