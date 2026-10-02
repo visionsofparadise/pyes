@@ -108,14 +108,14 @@ fn elsewhere_a_relative_xdg_config_home_is_ignored() {
 
 #[test]
 fn windows_refuses_a_relative_appdata() {
-    for appdata in ["data", r"C:data", r"\data"] {
+    for appdata in ["data", "C:", r"C:data", r"\data"] {
         assert_eq!(
             key_path_of(true, Some(appdata), Some("/xdg"), Some("/home"), &[]),
             Err("APPDATA is relative".to_string())
         );
     }
 
-    for appdata in [r"C:\data", r"\\server\share"] {
+    for appdata in [r"C:\", r"C:\data", r"\\server\share"] {
         assert_eq!(
             key_path_of(true, Some(appdata), None, None, &[]),
             Ok(Path::new(appdata).join("pyes").join("key"))
