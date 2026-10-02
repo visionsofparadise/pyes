@@ -926,6 +926,23 @@ fn a_rate_limit_long_after_a_hold_charges_none_of_the_gap() {
 }
 
 #[test]
+fn a_rate_limit_inside_a_closed_streak_charges_none_of_it_again() {
+    let mut state = state_of();
+    let started_at = state.resume_at;
+
+    state.hold_from(
+        job_of(0..1, 0),
+        Some(Duration::from_secs(100)),
+        RATE_LIMITED,
+        started_at,
+    );
+    state.answer(&job_of(0..1, 0), &[0.5]);
+    hold_after(&mut state, started_at, 50);
+
+    assert_eq!(state.rate_limited_of(), Duration::from_secs(100));
+}
+
+#[test]
 fn a_shorter_rate_limit_leaves_a_longer_hold_in_place() {
     let mut state = state_of();
 
