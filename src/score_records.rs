@@ -98,12 +98,12 @@ impl State {
         self.consecutive_rate_limits += 1;
 
         let now = Instant::now();
-        let held_from = self.resume_at.max(now);
-        let until = now + delay_of(self.consecutive_rate_limits - 1, retry_after);
+        let held_until_at = self.resume_at.max(now);
+        let resume_at = now + delay_of(self.consecutive_rate_limits - 1, retry_after);
 
-        if until > held_from {
-            self.held += until - held_from;
-            self.resume_at = until;
+        if resume_at > held_until_at {
+            self.held += resume_at - held_until_at;
+            self.resume_at = resume_at;
         }
 
         if self.held > HOLD_LIMIT {
@@ -196,23 +196,23 @@ fn run_job(shared: &Shared, send: &Send, records: &[String], questions: &[String
                     return;
                 }
 
-                let due = Instant::now() + delay_of(job.retries, retry_after);
+                let due_at = Instant::now() + delay_of(job.retries, retry_after);
 
                 loop {
                     if state.fatal.is_some() {
                         return;
                     }
 
-                    let until = due.max(state.resume_at);
+                    let send_at = due_at.max(state.resume_at);
                     let now = Instant::now();
 
-                    if until <= now {
+                    if send_at <= now {
                         break;
                     }
 
                     state = shared
                         .changed
-                        .wait_timeout(state, until - now)
+                        .wait_timeout(state, send_at - now)
                         .unwrap_or_else(PoisonError::into_inner)
                         .0;
                 }
