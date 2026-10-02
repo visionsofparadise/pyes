@@ -28,7 +28,7 @@ fn call_of(body: &Value) -> Call {
     }
 }
 
-fn answered(call: &Call) -> Outcome {
+fn success_of(call: &Call) -> Outcome {
     let offset = if call.question == "q1" { 100.0 } else { 0.0 };
 
     Ok((
@@ -48,14 +48,14 @@ fn questions_of(count: usize) -> Vec<String> {
     (0..count).map(|index| format!("Q{index}")).collect()
 }
 
-fn transient() -> Failure {
+fn transient_failure_of() -> Failure {
     Failure::Transient {
         message: "HTTP 503: busy".to_string(),
         retry_after: Some(Duration::from_millis(1)),
     }
 }
 
-fn rate_limited(milliseconds: u64) -> Failure {
+fn rate_limit_of(milliseconds: u64) -> Failure {
     Failure::RateLimited {
         retry_after: Some(Duration::from_millis(milliseconds)),
     }
@@ -200,14 +200,14 @@ fn script_of(outcomes: Vec<Outcome>) -> impl Fn(&Call, usize) -> Outcome {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .pop_front()
-            .unwrap_or_else(|| answered(call))
+            .unwrap_or_else(|| success_of(call))
     }
 }
 
 #[test]
 fn rows_land_in_input_order_across_questions() {
     let run = run_of(5, 2, vec![vec![0..2, 2..5], vec![0..3, 3..5]], |call, _| {
-        answered(call)
+        success_of(call)
     });
 
     assert_eq!(
@@ -226,7 +226,7 @@ fn too_large_splits_until_single_records_answer() {
         if call.records.len() > 1 {
             Err(Failure::TooLarge)
         } else {
-            answered(call)
+            success_of(call)
         }
     });
 
@@ -240,7 +240,7 @@ fn too_large_halves_at_the_midpoint() {
         if index == 0 {
             Err(Failure::TooLarge)
         } else {
-            answered(call)
+            success_of(call)
         }
     });
 
@@ -268,7 +268,7 @@ fn a_single_record_too_large_names_its_record() {
         if call.records == vec!["r2".to_string()] {
             Err(Failure::TooLarge)
         } else {
-            answered(call)
+            success_of(call)
         }
     });
 
@@ -285,7 +285,7 @@ fn a_rate_limit_holds_the_next_pop_for_its_retry_after() {
         3,
         1,
         vec![vec![0..1, 1..2, 2..3]],
-        script_of(vec![Err(rate_limited(150))]),
+        script_of(vec![Err(rate_limit_of(150))]),
     );
     let sent: Vec<&str> = run
         .calls
@@ -300,10 +300,10 @@ fn a_rate_limit_holds_the_next_pop_for_its_retry_after() {
 
 #[test]
 fn rate_limits_spend_no_retries() {
-    let mut outcomes: Vec<Outcome> = (0..3).map(|_| Err(rate_limited(1))).collect();
+    let mut outcomes: Vec<Outcome> = (0..3).map(|_| Err(rate_limit_of(1))).collect();
 
-    outcomes.extend((0..RETRIES).map(|_| Err(transient())));
-    outcomes.extend((0..3).map(|_| Err(rate_limited(1))));
+    outcomes.extend((0..RETRIES).map(|_| Err(transient_failure_of())));
+    outcomes.extend((0..3).map(|_| Err(rate_limit_of(1))));
 
     let run = run_of(1, 1, vec![vec![0..1]], script_of(outcomes));
 
@@ -332,7 +332,7 @@ fn six_transients_error_after_five_retries() {
         1,
         1,
         vec![vec![0..1]],
-        script_of((0..=RETRIES).map(|_| Err(transient())).collect()),
+        script_of((0..=RETRIES).map(|_| Err(transient_failure_of())).collect()),
     );
 
     assert_eq!(
@@ -348,7 +348,7 @@ fn five_transients_then_success_answers() {
         1,
         1,
         vec![vec![0..1]],
-        script_of((0..RETRIES).map(|_| Err(transient())).collect()),
+        script_of((0..RETRIES).map(|_| Err(transient_failure_of())).collect()),
     );
 
     assert_eq!(run.result, Ok(vec![vec![0.0]]));
@@ -389,7 +389,7 @@ fn a_transient_with_a_zero_retry_after_backs_off_by_delay_of() {
 
 #[test]
 fn transient_retries_without_a_retry_after_climb_the_backoff() {
-    let bare = || Failure::Transient {
+    let bare_failure_of = || Failure::Transient {
         message: "HTTP 503: busy".to_string(),
         retry_after: None,
     };
@@ -397,7 +397,7 @@ fn transient_retries_without_a_retry_after_climb_the_backoff() {
         1,
         1,
         vec![vec![0..1]],
-        script_of(vec![Err(bare()), Err(bare())]),
+        script_of(vec![Err(bare_failure_of()), Err(bare_failure_of())]),
     );
 
     assert_eq!(run.result, Ok(vec![vec![0.0]]));
@@ -406,9 +406,9 @@ fn transient_retries_without_a_retry_after_climb_the_backoff() {
 
 #[test]
 fn a_rate_limit_between_transients_keeps_the_retry_count() {
-    let mut outcomes = vec![Err(transient()), Err(rate_limited(1))];
+    let mut outcomes = vec![Err(transient_failure_of()), Err(rate_limit_of(1))];
 
-    outcomes.extend((0..RETRIES).map(|_| Err(transient())));
+    outcomes.extend((0..RETRIES).map(|_| Err(transient_failure_of())));
 
     let run = run_of(1, 1, vec![vec![0..1]], script_of(outcomes));
 
@@ -461,7 +461,7 @@ fn a_fatal_stops_dispatch_before_the_next_pop() {
                 return Err(Failure::Fatal("HTTP 401: denied".to_string()));
             }
 
-            answered(call)
+            success_of(call)
         },
     );
 
@@ -477,7 +477,7 @@ fn a_failed_spawn_with_nothing_in_flight_is_fatal() {
         refused_at: Arc::default(),
     };
     let run = run_over(spawner, 2, 1, vec![vec![0..1, 1..2]], |call, _| {
-        answered(call)
+        success_of(call)
     });
 
     assert_eq!(
@@ -503,7 +503,7 @@ fn a_failed_spawn_while_jobs_are_in_flight_requeues_and_holds() {
             retried.open();
         }
 
-        answered(call)
+        success_of(call)
     });
     let refused_at = refused_at
         .lock()
@@ -527,7 +527,7 @@ fn a_panicking_send_returns_the_internal_error() {
             panic!("send failed");
         }
 
-        answered(call)
+        success_of(call)
     });
 
     assert_eq!(
@@ -574,7 +574,9 @@ impl Spawner for Panicking {
 
 #[test]
 fn a_panic_outside_a_request_thread_is_not_blamed_on_one() {
-    let run = run_over(Panicking, 1, 1, vec![vec![0..1]], |call, _| answered(call));
+    let run = run_over(Panicking, 1, 1, vec![vec![0..1]], |call, _| {
+        success_of(call)
+    });
 
     assert_eq!(run.result, Err("internal error: pyes panicked".to_string()));
 }
@@ -647,7 +649,7 @@ fn first_sends_of(
         if first {
             respond(call)
         } else {
-            answered(call)
+            success_of(call)
         }
     }
 }
@@ -672,7 +674,7 @@ fn a_transient_retry_waits_out_a_hold_set_during_its_wait() {
 
             gate.wait();
 
-            Err(rate_limited(600))
+            Err(rate_limit_of(600))
         }),
     );
 
@@ -860,7 +862,7 @@ fn a_panic_stops_further_dispatch() {
 
             gate.wait();
 
-            Err(rate_limited(10_000))
+            Err(rate_limit_of(10_000))
         }),
     );
 
