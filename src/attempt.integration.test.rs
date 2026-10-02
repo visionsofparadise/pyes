@@ -62,3 +62,30 @@ fn a_malformed_response_is_a_transient_protocol_error() {
         failure_message_of(outcome_of(mock.url.clone())).starts_with("request failed: protocol: ")
     );
 }
+
+#[test]
+fn a_tls_handshake_with_a_plain_http_server_is_fatal() {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+
+    std::thread::spawn(move || {
+        use std::io::{Read, Write};
+
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut hello = [0; 5];
+
+        let _ = stream.read_exact(&mut hello);
+        let _ = stream.write_all(
+            b"HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+        );
+        let _ = stream.flush();
+        let _ = stream.read_to_end(&mut Vec::new());
+    });
+
+    let outcome = outcome_of(format!("https://{address}"));
+
+    assert!(
+        matches!(&outcome, Err(Failure::Fatal(message)) if message.starts_with("request failed: ")),
+        "{outcome:?}"
+    );
+}

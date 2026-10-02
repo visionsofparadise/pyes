@@ -34,6 +34,9 @@ fn request_failure_of(error: ureq::Error) -> Failure {
     let message = format!("request failed: {error}");
 
     match error {
+        ureq::Error::Io(ref cause) if cause.kind() == std::io::ErrorKind::InvalidData => {
+            Failure::Fatal(message)
+        }
         ureq::Error::Io(_)
         | ureq::Error::Timeout(_)
         | ureq::Error::HostNotFound

@@ -41,6 +41,17 @@ fn errors_a_retry_cannot_change_are_fatal() {
 }
 
 #[test]
+fn a_tls_verdict_is_fatal() {
+    let error = ureq::Error::Io(io::Error::new(
+        io::ErrorKind::InvalidData,
+        "invalid peer certificate: UnknownIssuer",
+    ));
+    let message = format!("request failed: {error}");
+
+    assert_eq!(request_failure_of(error), Failure::Fatal(message));
+}
+
+#[test]
 fn the_agent_times_out_at_30_s_and_uses_no_proxy() {
     let client = Client::new("http://127.0.0.1:1".to_string(), "key".to_string());
     let config = client.agent.config();
