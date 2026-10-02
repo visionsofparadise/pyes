@@ -45,6 +45,16 @@ fn a_200_whose_body_fails_to_arrive_is_transient() {
 }
 
 #[test]
+fn an_error_response_whose_body_fails_to_arrive_is_transient() {
+    let mock = MockJev::start_raw(|_| {
+        b"HTTP/1.1 400 Bad Request\r\nContent-Length: 100\r\nConnection: close\r\n\r\n{\"detail\""
+            .to_vec()
+    });
+
+    assert!(failure_message_of(outcome_of(mock.url.clone())).starts_with("request failed: "));
+}
+
+#[test]
 fn a_malformed_response_is_a_transient_protocol_error() {
     let mock = MockJev::start_raw(|_| b"NOT HTTP AT ALL\r\n\r\n".to_vec());
 

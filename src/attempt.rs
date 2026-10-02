@@ -70,16 +70,14 @@ pub fn attempt(client: &Client, body: &Value, count: usize) -> Result<(Vec<f64>,
     let retry_after_ms = header_of("retry-after-ms");
     let retry_after = header_of("retry-after");
 
-    if status == 200 {
-        let text = response
-            .body_mut()
-            .read_to_string()
-            .map_err(request_failure_of)?;
+    let text = response
+        .body_mut()
+        .read_to_string()
+        .map_err(request_failure_of)?;
 
+    if status == 200 {
         return answers_of(&text, count).map_err(Failure::Fatal);
     }
-
-    let text = response.body_mut().read_to_string().unwrap_or_default();
 
     Err(failure_of(
         status,
