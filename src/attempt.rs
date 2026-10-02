@@ -61,7 +61,7 @@ fn request_failure_of(error: ureq::Error) -> Failure {
                 .raw_os_error()
                 .is_some_and(|code| EXHAUSTION_ERRORS.contains(&code)) =>
         {
-            Failure::RateLimited { retry_after: None }
+            Failure::Exhausted(format!("request failed: {error}"))
         }
         ureq::Error::Io(ref cause) if cause.kind() == std::io::ErrorKind::InvalidData => {
             Failure::Fatal(format!("request failed: {error}"))

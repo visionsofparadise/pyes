@@ -520,6 +520,52 @@ fn a_failed_spawn_while_jobs_are_in_flight_requeues_and_holds() {
     assert!(retry.at - refused_at >= Duration::from_millis(375));
 }
 
+fn exhaustion_of() -> Failure {
+    Failure::Exhausted("request failed: too many open files".to_string())
+}
+
+#[test]
+fn exhaustion_with_nothing_else_in_flight_is_fatal() {
+    let run = run_of(
+        1,
+        1,
+        vec![vec![0..1]],
+        script_of(vec![Err(exhaustion_of())]),
+    );
+
+    assert_eq!(
+        run.result,
+        Err("request failed: too many open files".to_string())
+    );
+    assert_eq!(run.calls.len(), 1);
+}
+
+#[test]
+fn exhaustion_while_jobs_are_in_flight_requeues_and_holds() {
+    let resent = Gate::default();
+    let exhausted = AtomicUsize::new(0);
+    let run = run_of(2, 1, vec![vec![0..1, 1..2]], move |call, _| {
+        if call.records[0] == "r0" {
+            resent.wait();
+        } else if exhausted.fetch_add(1, Ordering::SeqCst) == 0 {
+            return Err(exhaustion_of());
+        } else {
+            resent.open();
+        }
+
+        success_of(call)
+    });
+    let sends: Vec<&Call> = run
+        .calls
+        .iter()
+        .filter(|call| call.records[0] == "r1")
+        .collect();
+
+    assert_eq!(run.result, Ok(vec![vec![0.0, 1.0]]));
+    assert_eq!(sends.len(), 2);
+    assert!(sends[1].at - sends[0].at >= Duration::from_millis(375));
+}
+
 #[test]
 fn a_panicking_send_returns_the_internal_error() {
     let run = run_of(2, 1, vec![vec![0..1, 1..2]], |call, _| {

@@ -200,6 +200,15 @@ fn run_job(shared: &Shared, send: &Send, records: &[String], questions: &[String
 
                 return;
             }
+            Err(Failure::Exhausted(message)) => {
+                if state.in_flight > 1 {
+                    state.hold(job, None);
+                } else {
+                    state.record(message);
+                }
+
+                return;
+            }
             Err(Failure::Transient {
                 message,
                 retry_after,

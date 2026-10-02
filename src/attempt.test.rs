@@ -75,7 +75,7 @@ fn the_agent_times_out_at_30_s_and_uses_no_proxy() {
 }
 
 #[test]
-fn exhausted_local_resources_hold_dispatch_like_a_bare_rate_limit() {
+fn exhausted_local_resources_are_named_as_exhaustion() {
     let codes: [i32; 2] = if cfg!(windows) {
         [10024, 10055]
     } else {
@@ -83,9 +83,9 @@ fn exhausted_local_resources_hold_dispatch_like_a_bare_rate_limit() {
     };
 
     for code in codes {
-        assert_eq!(
-            request_failure_of(ureq::Error::Io(io::Error::from_raw_os_error(code))),
-            Failure::RateLimited { retry_after: None }
-        );
+        let error = ureq::Error::Io(io::Error::from_raw_os_error(code));
+        let message = format!("request failed: {error}");
+
+        assert_eq!(request_failure_of(error), Failure::Exhausted(message));
     }
 }

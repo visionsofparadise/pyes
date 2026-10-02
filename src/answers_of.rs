@@ -14,6 +14,7 @@ pub enum Failure {
         message: String,
         retry_after: Option<Duration>,
     },
+    Exhausted(String),
     Fatal(String),
 }
 
