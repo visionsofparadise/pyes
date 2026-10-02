@@ -689,6 +689,16 @@ fn overlapping_holds_charge_only_their_extension() {
 }
 
 #[test]
+fn a_shorter_rate_limit_leaves_a_longer_hold_in_place() {
+    let mut state = state_of();
+
+    state.hold(job_of(0..1, 0), Some(Duration::from_secs(10)));
+    state.hold(job_of(0..1, 0), Some(Duration::from_millis(1)));
+
+    assert!(state.resume_at > Instant::now() + Duration::from_secs(5));
+}
+
+#[test]
 fn a_hold_past_the_limit_is_fatal() {
     let mut state = state_of();
 
