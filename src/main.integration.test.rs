@@ -551,20 +551,11 @@ fn not_unicode_folders_of(api_key: Option<&str>, mock: &MockJev) -> Environment 
 #[test]
 fn a_key_folder_that_is_not_unicode_raises_when_the_key_file_is_consulted() {
     let mock = MockJev::start(even_odds_of);
-    let outcome = outcome_of(
-        &["Is this a?"],
-        b"a
-",
-        not_unicode_folders_of(None, &mock),
-    );
+    let outcome = outcome_of(&["Is this a?"], b"a\n", not_unicode_folders_of(None, &mock));
 
     assert_eq!(outcome.code, FAILURE);
     assert!(
-        outcome.stderr.starts_with("pyes: ")
-            && outcome.stderr.ends_with(
-                "is not valid Unicode
-"
-            ),
+        outcome.stderr.starts_with("pyes: ") && outcome.stderr.ends_with("is not valid Unicode\n"),
         "{}",
         outcome.stderr
     );
@@ -576,20 +567,13 @@ fn a_set_key_skips_a_key_folder_that_is_not_unicode() {
     let mock = MockJev::start(even_odds_of);
     let outcome = outcome_of(
         &["Is this a?"],
-        b"a
-",
+        b"a\n",
         not_unicode_folders_of(Some("test"), &mock),
     );
 
     assert_eq!(
         (text_of(&outcome.stdout), outcome.stderr, outcome.code),
-        (
-            "0.5	a
-"
-            .to_string(),
-            String::new(),
-            SUCCESS
-        )
+        ("0.5\ta\n".to_string(), String::new(), SUCCESS)
     );
 }
 
