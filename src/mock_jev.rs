@@ -26,7 +26,7 @@ pub struct MockJev {
     pub requests: Arc<Mutex<Vec<Request>>>,
 }
 
-type Respond = dyn Fn(&Request) -> (u16, Vec<(String, String)>, String) + Send + Sync;
+type Respond = dyn Fn(&Request) -> Vec<u8> + Send + Sync;
 
 fn read_request(stream: &TcpStream) -> Option<Request> {
     let mut reader = BufReader::new(stream);
@@ -71,19 +71,7 @@ fn read_request(stream: &TcpStream) -> Option<Request> {
     })
 }
 
-fn serve(mut stream: TcpStream, respond: &Respond, requests: &Mutex<Vec<Request>>) {
-    let _ = stream.set_read_timeout(Some(Duration::from_secs(10)));
-
-    let Some(request) = read_request(&stream) else {
-        return;
-    };
-    let (status, headers, body) = respond(&request);
-
-    requests
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .push(request);
-
+fn response_of(status: u16, headers: Vec<(String, String)>, body: String) -> Vec<u8> {
     let mut response = format!(
         "HTTP/1.1 {status} Status\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n",
         body.len()
@@ -96,7 +84,23 @@ fn serve(mut stream: TcpStream, respond: &Respond, requests: &Mutex<Vec<Request>
     response.push_str("\r\n");
     response.push_str(&body);
 
-    let _ = stream.write_all(response.as_bytes());
+    response.into_bytes()
+}
+
+fn serve(mut stream: TcpStream, respond: &Respond, requests: &Mutex<Vec<Request>>) {
+    let _ = stream.set_read_timeout(Some(Duration::from_secs(10)));
+
+    let Some(request) = read_request(&stream) else {
+        return;
+    };
+    let response = respond(&request);
+
+    requests
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .push(request);
+
+    let _ = stream.write_all(&response);
     let _ = stream.flush();
 }
 
@@ -104,6 +108,14 @@ impl MockJev {
     pub fn start(
         respond: impl Fn(&Request) -> (u16, Vec<(String, String)>, String) + Send + Sync + 'static,
     ) -> MockJev {
+        MockJev::start_raw(move |request| {
+            let (status, headers, body) = respond(request);
+
+            response_of(status, headers, body)
+        })
+    }
+
+    pub fn start_raw(respond: impl Fn(&Request) -> Vec<u8> + Send + Sync + 'static) -> MockJev {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let url = format!("http://{}", listener.local_addr().unwrap());
         let requests = Arc::new(Mutex::new(Vec::new()));

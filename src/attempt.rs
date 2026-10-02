@@ -93,3 +93,7 @@ pub fn attempt(client: &Client, body: &Value, count: usize) -> Result<(Vec<f64>,
 #[cfg(test)]
 #[path = "attempt.test.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "attempt.integration.test.rs"]
+mod integration;

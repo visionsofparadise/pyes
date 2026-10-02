@@ -8,6 +8,11 @@ fn network_errors_are_transient() {
         ureq::Error::Timeout(ureq::Timeout::Global),
         ureq::Error::HostNotFound,
         ureq::Error::ConnectionFailed,
+        ureq::Error::ConnectProxyFailed("refused".to_string()),
+        ureq::Error::Decompress(
+            "gzip",
+            io::Error::new(io::ErrorKind::UnexpectedEof, "truncated"),
+        ),
     ] {
         let message = format!("request failed: {error}");
 
@@ -33,4 +38,13 @@ fn errors_a_retry_cannot_change_are_fatal() {
 
         assert_eq!(request_failure_of(error), Failure::Fatal(message));
     }
+}
+
+#[test]
+fn the_agent_times_out_at_30_s_and_uses_no_proxy() {
+    let client = Client::new("http://127.0.0.1:1".to_string(), "key".to_string());
+    let config = client.agent.config();
+
+    assert_eq!(config.timeouts().global, Some(TIMEOUT));
+    assert!(config.proxy().is_none());
 }
