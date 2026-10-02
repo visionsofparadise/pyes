@@ -61,7 +61,9 @@ fn jitter_of() -> f64 {
 }
 
 pub fn delay_of(attempt: u32, retry_after: Option<Duration>) -> Duration {
-    retry_after.unwrap_or_else(|| backoff_of(attempt, jitter_of()))
+    retry_after
+        .filter(|delay| !delay.is_zero())
+        .unwrap_or_else(|| backoff_of(attempt, jitter_of()))
 }
 
 #[derive(Clone)]
@@ -97,11 +99,7 @@ impl State {
 
         let now = Instant::now();
         let held_from = self.resume_at.max(now);
-        let until = now
-            + delay_of(
-                self.consecutive_rate_limits - 1,
-                retry_after.filter(|delay| !delay.is_zero()),
-            );
+        let until = now + delay_of(self.consecutive_rate_limits - 1, retry_after);
 
         if until > held_from {
             self.held += until - held_from;

@@ -372,6 +372,22 @@ fn a_transient_retry_waits_for_its_retry_after() {
 }
 
 #[test]
+fn a_transient_with_a_zero_retry_after_backs_off_by_delay_of() {
+    let run = run_of(
+        1,
+        1,
+        vec![vec![0..1]],
+        script_of(vec![Err(Failure::Transient {
+            message: "HTTP 503: busy".to_string(),
+            retry_after: Some(Duration::ZERO),
+        })]),
+    );
+
+    assert_eq!(run.result, Ok(vec![vec![0.0]]));
+    assert!(run.calls[1].at - run.calls[0].at >= Duration::from_millis(375));
+}
+
+#[test]
 fn transient_retries_without_a_retry_after_climb_the_backoff() {
     let bare = || Failure::Transient {
         message: "HTTP 503: busy".to_string(),
@@ -569,6 +585,13 @@ fn a_given_retry_after_is_the_delay() {
         delay_of(3, Some(Duration::from_millis(1234))),
         Duration::from_millis(1234)
     );
+}
+
+#[test]
+fn a_zero_retry_after_counts_as_absent() {
+    let delay = delay_of(0, Some(Duration::ZERO));
+
+    assert!(delay >= Duration::from_millis(375) && delay <= Duration::from_millis(500));
 }
 
 #[test]
