@@ -41,6 +41,6 @@ pyes --help
 pyes --version
 ```
 
-## Licence
+## License
 
 MIT
