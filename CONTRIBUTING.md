@@ -8,7 +8,7 @@
 
 ## Setup
 
-Run `npm ci`. Its `prepare` script installs the git hooks, the pinned Trivy and actionlint binaries, the Rust lint tools the checks need, and the minimum supported Rust toolchain.
+Run `npm ci`. Its `prepare` script installs the git hooks and the tools the checks need.
 
 ## Pull requests
 
@@ -19,10 +19,6 @@ npm run check
 npm run unit
 npm run integration
 ```
-
-## Tests
-
-Rust unit tests sit beside their implementation in `*.test.rs` files, included by a private `#[cfg(test)]` module with `#[path = "filename.test.rs"]`. Tests that drive a mock Jev server over HTTP go in `*.integration.test.rs` files, included under a module named `integration`.
 
 ## Commits
 
