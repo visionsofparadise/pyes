@@ -1,6 +1,6 @@
 # pyes
 
-Prefix each text record with the probability of yes to natural-language questions, using [TypeSafe AI's Jev](https://typesafe.ai).
+CLI wrapper for [TypeSafe AI's Jev](https://typesafe.ai). Ask questions for stdin lines or delimited chunks.
 
 ## Install
 
